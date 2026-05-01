@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    container_name: hiddify-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - ./data:/app/data

@@ -1,0 +1,14 @@
+version: "1.54"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck      # Unchecked errors
+    - govet         # Go vet
+    - ineffassign   # Unused assignments
+    - staticcheck   # Static checker
+    - typecheck     # Type checking
+    - unused        # Unused code
+    - gosimple      # Simplification suggestions
