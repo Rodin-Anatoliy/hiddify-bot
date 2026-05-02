@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -9,48 +10,56 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
+
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 )
 
 const (
+	// broadcastWorkers limits concurrent Telegram sends to stay under API rate limits.
 	broadcastWorkers = 5
-	broadcastDelay   = 50 * time.Millisecond
+	// broadcastDelay is the pause between sends per worker (~30 msg/s total across all workers).
+	broadcastDelay = 50 * time.Millisecond
 )
 
+// BroadcastMessage is the payload for a broadcast — text only or text+photo.
 type BroadcastMessage struct {
 	Text   string
-	FileID string
+	FileID string // Telegram photo file_id; empty means text-only
 }
 
+// BroadcastResult carries aggregate delivery statistics.
 type BroadcastResult struct {
 	Total   int
 	Success int32
 	Failed  int32
 }
 
-type Sender interface {
-	SendText(ctx context.Context, telegramID int64, text string) error
-	SendPhoto(ctx context.Context, telegramID int64, fileID, caption string) error
-}
-
+// BroadcastUseCase sends a message to all users who have enabled messaging (/start).
 type BroadcastUseCase struct {
 	users  user.Repository
-	sender Sender
+	sender port.Sender
 	log    *slog.Logger
 }
 
-func NewBroadcastUseCase(users user.Repository, sender Sender, log *slog.Logger) *BroadcastUseCase {
-	return &BroadcastUseCase{users: users, sender: sender, log: log.With("usecase", "broadcast")}
+func NewBroadcastUseCase(users user.Repository, sender port.Sender, log *slog.Logger) *BroadcastUseCase {
+	return &BroadcastUseCase{
+		users:  users,
+		sender: sender,
+		log:    log.With("usecase", "broadcast"),
+	}
 }
 
+// Send dispatches msg to every messageable linked user.
+// Uses a bounded worker pool so we never spawn O(n) goroutines.
 func (uc *BroadcastUseCase) Send(ctx context.Context, msg BroadcastMessage) (*BroadcastResult, error) {
 	recipients, err := uc.users.FindAllLinked(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("broadcast: load recipients: %w", err)
 	}
 
 	result := &BroadcastResult{Total: len(recipients)}
 	if result.Total == 0 {
-		uc.log.Info("broadcast: no linked users, skipping")
+		uc.log.Info("broadcast: no recipients, skipping")
 		return result, nil
 	}
 
@@ -61,7 +70,7 @@ func (uc *BroadcastUseCase) Send(ctx context.Context, msg BroadcastMessage) (*Br
 	close(jobs)
 
 	g, gCtx := errgroup.WithContext(ctx)
-	for i := 0; i < broadcastWorkers; i++ {
+	for range broadcastWorkers {
 		g.Go(func() error {
 			for u := range jobs {
 				if gCtx.Err() != nil {
@@ -69,8 +78,7 @@ func (uc *BroadcastUseCase) Send(ctx context.Context, msg BroadcastMessage) (*Br
 				}
 				if err := uc.deliver(gCtx, u.TelegramID, msg); err != nil {
 					atomic.AddInt32(&result.Failed, 1)
-					uc.log.Warn("broadcast: delivery failed",
-						"telegram_id", u.TelegramID, "err", err)
+					uc.log.Warn("broadcast: delivery failed", "telegram_id", u.TelegramID, "err", err)
 				} else {
 					atomic.AddInt32(&result.Success, 1)
 				}
@@ -80,11 +88,11 @@ func (uc *BroadcastUseCase) Send(ctx context.Context, msg BroadcastMessage) (*Br
 		})
 	}
 
-	if err := g.Wait(); err != nil {
-		uc.log.Warn("broadcast: some workers encountered errors", "err", err)
-	}
+	// We don't propagate the errgroup error — it's only context cancellation.
+	// Partial results are still useful.
+	_ = g.Wait()
 
-	uc.log.Info("broadcast completed",
+	uc.log.Info("broadcast done",
 		"total", result.Total, "ok", result.Success, "fail", result.Failed)
 	return result, nil
 }

@@ -1,37 +1,41 @@
-.PHONY: help lint test cover build clean tidy fmt dev
+.PHONY: help dev lint fmt tidy test cover deploy clean
 
-help:  ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "} {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
-# Development
-dev:  ## Run bot locally
-	go run ./cmd/bot
+help: ## Show available commands
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-# Code quality
-lint:  ## Run linters (fmt, vet, golangci-lint)
-	gofmt -l -w .
-	go vet ./...
+# ── Local development ─────────────────────────────────────────────────────────
+
+dev: ## Run bot locally via go run (no build step needed)
+	go run -ldflags="-X main.commit=$(COMMIT)" ./cmd/bot
+
+# ── Code quality ──────────────────────────────────────────────────────────────
+
+lint: ## Run golangci-lint
 	golangci-lint run --timeout=5m ./...
 
-fmt:  ## Format code
-	gofmt -s -w .
-	goimports -w . 2>/dev/null || true
+fmt: ## Format code
+	@command -v gofumpt >/dev/null 2>&1 && gofumpt -w . || gofmt -s -w .
 
-tidy:  ## Tidy dependencies
-	go mod tidy
+tidy: ## Tidy and verify dependencies
+	go mod tidy && go mod verify
 
-# Testing
-test:  ## Run tests with race detection
-	go test -race -v ./...
+# ── Tests ─────────────────────────────────────────────────────────────────────
 
-cover:  ## Generate test coverage report
-	go test -race -coverprofile=coverage.out ./...
+test: ## Run tests with race detector
+	go test -race -count=1 ./...
+
+cover: ## Run tests and open HTML coverage report
+	go test -race -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
 
-# Build & Deployment
-build:  ## Build Docker image (production)
-	docker build -t hiddify-bot:latest .
+# ── Production ────────────────────────────────────────────────────────────────
 
-clean:  ## Clean build artifacts
+deploy: ## Build image and (re)start container — works for first run and updates
+	docker compose up -d --build
+
+clean: ## Remove coverage artifacts and test cache
 	rm -f coverage.out coverage.html
 	go clean -testcache

@@ -1,6 +1,8 @@
+// Package hiddify provides an HTTP client for the Hiddify Manager API v2.
 package hiddify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,10 +15,9 @@ import (
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
 )
 
-const (
-	defaultTimeout = 10 * time.Second
-)
+const defaultTimeout = 15 * time.Second
 
+// Client communicates with the Hiddify panel REST API v2.
 type Client struct {
 	baseURL    string
 	adminProxy string
@@ -25,6 +26,7 @@ type Client struct {
 	log        *slog.Logger
 }
 
+// NewClient constructs a ready-to-use Hiddify API client.
 func NewClient(baseURL, adminProxy, apiKey string, log *slog.Logger) *Client {
 	return &Client{
 		baseURL:    baseURL,
@@ -35,7 +37,9 @@ func NewClient(baseURL, adminProxy, apiKey string, log *slog.Logger) *Client {
 	}
 }
 
-type userInfoResponse struct {
+// ── API response types (private — never leave this package) ──────────────────
+
+type apiUser struct {
 	UUID            string  `json:"uuid"`
 	Name            string  `json:"name"`
 	TelegramID      *int64  `json:"telegram_id"`
@@ -43,29 +47,29 @@ type userInfoResponse struct {
 	UsedTrafficGB   float64 `json:"current_usage_GB"`
 	TotalTrafficGB  float64 `json:"usage_limit_GB"` // 0 = unlimited
 	PackageDays     int     `json:"package_days"`
-	StartDate       string  `json:"start_date"` // "2024-01-15"
+	StartDate       string  `json:"start_date"` // "2006-01-02"
 	SubscriptionURL string  `json:"subscription_url"`
 }
 
-type allUsersResponse []userInfoResponse
+// ── Public API ────────────────────────────────────────────────────────────────
 
+// GetUserByUUID fetches a single Hiddify user and maps it to a subscription status.
 func (c *Client) GetUserByUUID(ctx context.Context, uuid string) (*subscription.Status, error) {
 	path := fmt.Sprintf("/%s/api/v2/admin/user/%s/", c.adminProxy, uuid)
-	var resp userInfoResponse
-	if err := c.get(ctx, path, &resp); err != nil {
+	var raw apiUser
+	if err := c.get(ctx, path, &raw); err != nil {
 		return nil, err
 	}
-	return toStatus(resp, c.baseURL, uuid), nil
+	return toStatus(raw, c.baseURL, uuid), nil
 }
 
+// GetUserByTelegramID finds the first panel user whose telegram_id matches.
 func (c *Client) GetUserByTelegramID(ctx context.Context, telegramID int64) (*subscription.Status, string, error) {
-	path := fmt.Sprintf("/%s/api/v2/admin/user/", c.adminProxy)
-	var resp allUsersResponse
-	if err := c.get(ctx, path, &resp); err != nil {
+	all, err := c.listRaw(ctx)
+	if err != nil {
 		return nil, "", err
 	}
-
-	for _, u := range resp {
+	for _, u := range all {
 		if u.TelegramID != nil && *u.TelegramID == telegramID {
 			return toStatus(u, c.baseURL, u.UUID), u.UUID, nil
 		}
@@ -73,33 +77,29 @@ func (c *Client) GetUserByTelegramID(ctx context.Context, telegramID int64) (*su
 	return nil, "", apperr.ErrNotFound
 }
 
-func (c *Client) ListUsers(ctx context.Context) ([]subscription.PanelUser, error) {
-	path := fmt.Sprintf("/%s/api/v2/admin/user/", c.adminProxy)
-	var resp allUsersResponse
-	if err := c.get(ctx, path, &resp); err != nil {
-		return nil, err
-	}
-	users := make([]subscription.PanelUser, 0, len(resp))
-	for _, u := range resp {
-		users = append(users, subscription.PanelUser{
-			UUID:       u.UUID,
-			Name:       u.Name,
-			TelegramID: u.TelegramID,
-		})
-	}
-	return users, nil
-}
 
+
+// SetTelegramID links a Telegram chat ID to an existing Hiddify user.
 func (c *Client) SetTelegramID(ctx context.Context, uuid string, telegramID int64) error {
 	path := fmt.Sprintf("/%s/api/v2/admin/user/%s/", c.adminProxy, uuid)
-	body := map[string]any{"telegram_id": telegramID}
-	return c.patch(ctx, path, body)
+	return c.patch(ctx, path, map[string]any{"telegram_id": telegramID})
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+func (c *Client) listRaw(ctx context.Context) ([]apiUser, error) {
+	path := fmt.Sprintf("/%s/api/v2/admin/user/", c.adminProxy)
+	var out []apiUser
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, dest any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
-		return fmt.Errorf("hiddify get: build request: %w", err)
+		return fmt.Errorf("hiddify get: %w", err)
 	}
 	c.setHeaders(req)
 
@@ -108,7 +108,6 @@ func (c *Client) get(ctx context.Context, path string, dest any) error {
 		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
 	}
 	defer resp.Body.Close()
-
 	return c.decode(resp, dest)
 }
 
@@ -117,11 +116,9 @@ func (c *Client) patch(ctx context.Context, path string, payload any) error {
 	if err != nil {
 		return fmt.Errorf("hiddify patch: marshal: %w", err)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+path,
-		newJSONBody(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+path, bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("hiddify patch: build request: %w", err)
+		return fmt.Errorf("hiddify patch: %w", err)
 	}
 	c.setHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
@@ -133,20 +130,11 @@ func (c *Client) patch(ctx context.Context, path string, payload any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			c.log.Error("hiddify patch error", "status", resp.StatusCode, "read_body_err", readErr)
-		} else {
-			c.log.Error("hiddify patch error", "status", resp.StatusCode, "body", string(body))
-		}
+		body, _ := io.ReadAll(resp.Body)
+		c.log.Error("hiddify patch error", "status", resp.StatusCode, "body", string(body))
 		return fmt.Errorf("%w: status %d", apperr.ErrHiddifyAPI, resp.StatusCode)
 	}
 	return nil
-}
-
-func (c *Client) setHeaders(req *http.Request) {
-	req.Header.Set("Hiddify-API-Key", c.apiKey)
-	req.Header.Set("Accept", "application/json")
 }
 
 func (c *Client) decode(resp *http.Response, dest any) error {
@@ -158,14 +146,18 @@ func (c *Client) decode(resp *http.Response, dest any) error {
 		c.log.Error("hiddify error response", "status", resp.StatusCode, "body", string(body))
 		return fmt.Errorf("%w: status %d", apperr.ErrHiddifyAPI, resp.StatusCode)
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
-		return fmt.Errorf("hiddify: decode response: %w", err)
+		return fmt.Errorf("hiddify: decode: %w", err)
 	}
 	return nil
 }
 
-func toStatus(r userInfoResponse, baseURL, uuid string) *subscription.Status {
+func (c *Client) setHeaders(req *http.Request) {
+	req.Header.Set("Hiddify-API-Key", c.apiKey)
+	req.Header.Set("Accept", "application/json")
+}
+
+func toStatus(r apiUser, baseURL, uuid string) *subscription.Status {
 	s := &subscription.Status{
 		UUID:              uuid,
 		UsedTrafficBytes:  gbToBytes(r.UsedTrafficGB),
@@ -173,7 +165,6 @@ func toStatus(r userInfoResponse, baseURL, uuid string) *subscription.Status {
 		IsActive:          r.IsActive,
 		SubscriptionURL:   r.SubscriptionURL,
 	}
-
 	if r.StartDate != "" {
 		if t, err := time.Parse("2006-01-02", r.StartDate); err == nil {
 			s.StartDate = t
@@ -183,8 +174,7 @@ func toStatus(r userInfoResponse, baseURL, uuid string) *subscription.Status {
 			}
 		}
 	}
-
-	if s.SubscriptionURL == "" && baseURL != "" && uuid != "" {
+	if s.SubscriptionURL == "" && uuid != "" {
 		s.SubscriptionURL = fmt.Sprintf("%s/%s/", baseURL, uuid)
 	}
 	return s
@@ -195,22 +185,4 @@ func gbToBytes(gb float64) int64 {
 		return 0
 	}
 	return int64(gb * 1024 * 1024 * 1024)
-}
-
-func newJSONBody(data []byte) io.Reader {
-	return &bytesReader{data: data, pos: 0}
-}
-
-type bytesReader struct {
-	data []byte
-	pos  int
-}
-
-func (b *bytesReader) Read(p []byte) (int, error) {
-	if b.pos >= len(b.data) {
-		return 0, io.EOF
-	}
-	n := copy(p, b.data[b.pos:])
-	b.pos += n
-	return n, nil
 }

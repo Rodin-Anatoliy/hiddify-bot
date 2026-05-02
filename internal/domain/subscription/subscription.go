@@ -12,11 +12,6 @@ type Status struct {
 	SubscriptionURL   string
 }
 
-type PanelUser struct {
-	UUID       string
-	Name       string
-	TelegramID *int64
-}
 
 func (s *Status) RemainingTrafficBytes() int64 {
 	if s.TotalTrafficBytes == 0 {

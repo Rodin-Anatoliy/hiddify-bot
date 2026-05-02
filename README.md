@@ -1,86 +1,79 @@
-# Hiddify Bot
+# hiddify-bot
 
-Telegram-бот для пользователей Hiddify Manager.
+Telegram bot for managing [Hiddify Manager](https://github.com/hiddify/HiddifyManager) users.  
+Built as a Go portfolio project — Clean Architecture, testable, production-ready.
 
-Бот хранит локальную связь `telegram_id -> hiddify_uuid`, показывает статус подписки, принимает сообщения поддержки и умеет делать рассылки пользователям, которые уже запускали этого бота.
+## Features
 
-## Важное ограничение Telegram
+| Command | Who | Description |
+|---|---|---|
+| `/start` | User | Register; auto-link Hiddify account if `telegram_id` is set in panel |
+| `/status` | User | Live subscription stats: traffic, expiry, personal link |
+| `/support` | User | Two-way support channel with admin |
+| `/bind <tg_id> <uuid>` | Admin | Manually link a Telegram user to a Hiddify account |
+| `/sync` | Admin | Pull all panel users with `telegram_id` into local DB |
+| `/broadcast <text>` | Admin | Send text or photo to all active users |
 
-Бот не может первым написать человеку. Пользователь должен открыть бота и нажать `/start`.
-
-Если используется токен старого бота, пользователи, которые уже писали старому боту, остаются доступны. Если токен новый, пользователям нужно заново открыть нового бота.
-
-## Возможности
-
-- `/start` регистрирует Telegram-контакт и подтягивает привязку из Hiddify, если в панели уже указан `telegram_id`.
-- `/status` показывает статус подписки, остаток трафика, дату окончания и ссылку подписки.
-- `/support` открывает простой канал связи с администратором.
-- `/bind <telegram_id> <uuid>` вручную связывает Telegram и Hiddify.
-- `/sync` подтягивает из Hiddify пользователей с заполненным `telegram_id`.
-- `/broadcast <text>` рассылает сообщение всем привязанным пользователям, которые запускали бота.
-
-## Архитектура
-
-```text
-cmd/bot                 точка входа
-internal/domain         сущности и интерфейсы
-internal/usecase        сценарии приложения
-internal/infrastructure Telegram, Hiddify API, SQLite, config
-pkg                     общие утилиты
-```
-
-## Конфигурация и запуск
-
-`config.yml` — единая точка входа для настроек. В нем перечислены все параметры приложения.
-
-Секреты в `config.yml` не пишутся напрямую. Для них используются подстановки из `.env`: `${TG_TOKEN}`, `${HIDDIFY_API_KEY}` и так далее. Несекретные значения можно оставить прямо в `config.yml` или тоже переопределить через env с дефолтом: `${LOG_LEVEL:-info}`.
+## Quick start
 
 ```bash
+git clone https://github.com/Rodin-Anatoliy/hiddify-bot
+cd hiddify-bot
+
 cp .env.example .env
+# Fill in TG_TOKEN, TG_ADMIN_ID, HIDDIFY_* values
+
+mkdir -p data
+make deploy        # builds Docker image and starts container
 ```
 
-Минимальный `.env`:
-
-```env
-TG_TOKEN=1234567890:token
-TG_ADMIN_ID=123456789
-HIDDIFY_BASE_URL=https://panel.example.com
-HIDDIFY_ADMIN_PROXY=random-admin-path
-HIDDIFY_API_KEY=api-key
-DB_PATH=data/bot.db
-LOG_LEVEL=info
-TG_TIMEOUT=10
-```
-
-Если `config.yml` отсутствует после клонирования, создайте его из примера: `cp config.yml.example config.yml`.
-
-## Dev: локально
+For local development without Docker:
 
 ```bash
+go mod download
 make dev
 ```
 
-## Prod: Docker из исходников
+See [.github/DEVELOPMENT.md](.github/DEVELOPMENT.md) for full setup guide.
 
-Рабочий прод-сценарий: на сервере лежит репозиторий проекта, `.env`, `config.yml` и папка `data`. Docker собирает образ локально из `Dockerfile`; публиковать образ никуда не нужно.
+## Architecture
 
-```bash
-cp .env.example .env
-docker compose up -d
-docker compose logs -f
+```
+internal/
+  domain/         — pure entities, no external dependencies
+  port/           — outbound interface contracts (Sender)
+  usecase/        — business logic, depends only on domain + port
+  infrastructure/ — implementations: Telegram, Hiddify API, SQLite
+  config/         — configuration loading
+pkg/
+  apperr/         — sentinel errors
+  logger/         — structured JSON logging (slog)
 ```
 
-В контейнер монтируются `config.yml` и `./data`. База SQLite сохраняется между перезапусками.
+Dependency rule: `domain ← port ← usecase ← infrastructure ← cmd`  
+`usecase` never imports `infrastructure`.
 
-## Сценарий работы
+## Configuration
 
-1. Администратор создает пользователя в Hiddify.
-2. Администратор указывает `telegram_id` в панели или выполняет `/bind <telegram_id> <uuid>`.
-3. Пользователь открывает бота и нажимает `/start`.
-4. После этого бот может отправлять пользователю статус, ответы поддержки и рассылки.
+Secrets live in `.env`, non-sensitive settings in `config.yml`:
 
-## Тесты
-
-```bash
-make test
+```env
+TG_TOKEN=...
+TG_ADMIN_ID=...
+HIDDIFY_BASE_URL=https://your-panel.example.com
+HIDDIFY_ADMIN_PROXY=your-random-path
+HIDDIFY_API_KEY=your-api-key
 ```
+
+## User linking flow
+
+Telegram does not allow bots to initiate conversations. The flow:
+
+1. Create user in Hiddify panel → set their `telegram_id`
+2. Run `/sync` → user appears in local DB (`can_message = false`)
+3. User opens the bot and presses `/start` → `can_message = true`
+4. Broadcast reaches them
+
+## License
+
+MIT
