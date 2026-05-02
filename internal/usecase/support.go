@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/ticket"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
-
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 )
 

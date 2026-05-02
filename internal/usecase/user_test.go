@@ -8,7 +8,6 @@ import (
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/subscription"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/logger"

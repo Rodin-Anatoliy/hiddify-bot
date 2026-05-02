@@ -93,11 +93,10 @@ func (bot *Bot) SendPhoto(_ context.Context, telegramID int64, fileID, caption s
 }
 
 // ── Handler registration ──────────────────────────────────────────────────────
-
 func (bot *Bot) registerHandlers() {
 	// Global middleware: panic recovery.
-	bot.b.Use(middleware.Recover(func(err error, c tele.Context) {
-		bot.log.Error("handler panic", "err", err, "sender", c.Sender().ID)
+	bot.b.Use(middleware.Recover(func(err error) {
+		bot.log.Error("handler panic", "err", err)
 	}))
 
 	// User commands.
