@@ -11,7 +11,6 @@ import (
 	"time"
 
 	tele "gopkg.in/telebot.v3"
-	"gopkg.in/telebot.v3/middleware"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/ticket"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/repository"
@@ -128,9 +127,29 @@ func replyMarkup(targetTgID int64) *tele.ReplyMarkup {
 var replyBtn = tele.InlineButton{Unique: "reply_to_user"}
 
 func (bot *Bot) registerHandlers() {
-	bot.b.Use(middleware.Recover(func(err error, c tele.Context) {
-		bot.log.Error("handler panic", "err", err, "sender", c.Sender().ID)
-	}))
+	// Middleware: Recover from panics.
+	bot.b.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			defer func() {
+				if r := recover(); r != nil {
+					var err error
+					switch t := r.(type) {
+					case error:
+						err = t
+					default:
+						err = fmt.Errorf("%v", t)
+					}
+
+					bot.log.Error("handler panic",
+						"err", err,
+						"sender", c.Sender().ID,
+						"update_id", c.Update().ID,
+					)
+				}
+			}()
+			return next(c)
+		}
+	})
 
 	// User commands.
 	bot.b.Handle("/start", bot.handleStart)
@@ -183,7 +202,7 @@ func (bot *Bot) handleStart(c tele.Context) error {
 		)
 	}
 	return c.Send(
-		"👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\n" +
+		"👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\n"+
 			"Напишите в поддержку — администратор поможет.",
 		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
 			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
@@ -285,7 +304,6 @@ func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 	}
 	return nil
 }
-
 
 func (bot *Bot) handleSupportPrompt(c tele.Context) error {
 	return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
