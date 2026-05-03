@@ -214,3 +214,9 @@ func (uc *UserUseCase) upsertFromPanel(ctx context.Context, pu PanelUserDTO, now
 	}
 	return nil
 }
+
+// ListLinked returns all users with a Hiddify UUID — for admin /users command.
+// Includes users who haven't pressed /start yet (CanMessage=false).
+func (uc *UserUseCase) ListLinked(ctx context.Context) ([]*user.User, error) {
+	return uc.users.FindAllWithUUID(ctx)
+}

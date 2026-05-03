@@ -1,7 +1,7 @@
 telegram:
   token: "${TG_TOKEN}"
   admin_id: ${TG_ADMIN_ID}
-  timeout: ${TG_TIMEOUT:-10}
+  timeout: 10
 
 hiddify:
   base_url: "${HIDDIFY_BASE_URL}"

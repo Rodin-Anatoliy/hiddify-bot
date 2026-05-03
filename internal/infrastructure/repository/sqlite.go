@@ -156,6 +156,19 @@ func (r *UserRepository) FindAllLinked(ctx context.Context) ([]*user.User, error
 	return collectUsers(rows)
 }
 
+// FindAllWithUUID returns all users with a HiddifyUUID, regardless of CanMessage.
+// Used by the admin /users command to show full picture including pending users.
+func (r *UserRepository) FindAllWithUUID(ctx context.Context) ([]*user.User, error) {
+	rows, err := r.db.conn.QueryContext(ctx,
+		`SELECT telegram_id, hiddify_uuid, username, can_message, link_source, linked_at, last_seen, created_at
+		 FROM users WHERE hiddify_uuid != '' ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("user find all: %w", err)
+	}
+	defer rows.Close()
+	return collectUsers(rows)
+}
+
 // ── TicketRepository ──────────────────────────────────────────────────────────
 
 // TicketRepository implements domain/ticket.Repository on top of SQLite.

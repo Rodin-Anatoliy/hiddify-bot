@@ -59,6 +59,17 @@ func (m *mockUserRepo) FindAllLinked(_ context.Context) ([]*user.User, error) {
 	return result, nil
 }
 
+func (m *mockUserRepo) FindAllWithUUID(_ context.Context) ([]*user.User, error) {
+	var result []*user.User
+	for _, u := range m.data {
+		if u.IsLinked() {
+			cp := *u
+			result = append(result, &cp)
+		}
+	}
+	return result, nil
+}
+
 type mockHiddify struct {
 	byTelegram map[int64]string
 }

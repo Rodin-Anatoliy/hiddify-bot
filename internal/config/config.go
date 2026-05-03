@@ -75,13 +75,13 @@ func (cfg *Config) Validate() error {
 		missing = append(missing, "hiddify.api_key")
 	}
 	if strings.TrimSpace(cfg.DB.Path) == "" {
-		missing = append(missing, "db.path")
+		cfg.DB.Path = "data/bot.db"
 	}
 	if strings.TrimSpace(cfg.Log.Level) == "" {
-		missing = append(missing, "log.level")
+		cfg.Log.Level = "info"
 	}
 	if cfg.Telegram.Timeout <= 0 {
-		missing = append(missing, "telegram.timeout")
+		cfg.Telegram.Timeout = 10 // default polling timeout in seconds
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required values: %s", strings.Join(missing, ", "))

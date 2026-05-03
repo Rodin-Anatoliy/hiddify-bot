@@ -12,7 +12,6 @@ coverage.html
 
 # Secrets — never commit these
 .env
-config.yml
 !.env.example
 !config.yml.example
 

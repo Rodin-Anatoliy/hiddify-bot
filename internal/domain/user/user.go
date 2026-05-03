@@ -25,4 +25,7 @@ type Repository interface {
 	FindByTelegramID(ctx context.Context, telegramID int64) (*User, error)
 	FindByHiddifyUUID(ctx context.Context, uuid string) (*User, error)
 	FindAllLinked(ctx context.Context) ([]*User, error)
+
+	// FindAllWithUUID returns all users with a HiddifyUUID regardless of CanMessage.
+	FindAllWithUUID(ctx context.Context) ([]*User, error)
 }

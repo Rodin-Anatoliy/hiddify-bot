@@ -22,15 +22,13 @@ type IncomingMessage struct {
 type SupportUseCase struct {
 	tickets ticket.Repository
 	sender  port.Sender
-	adminID int64
 	log     *slog.Logger
 }
 
-func NewSupportUseCase(tickets ticket.Repository, sender port.Sender, adminID int64, log *slog.Logger) *SupportUseCase {
+func NewSupportUseCase(tickets ticket.Repository, sender port.Sender, log *slog.Logger) *SupportUseCase {
 	return &SupportUseCase{
 		tickets: tickets,
 		sender:  sender,
-		adminID: adminID,
 		log:     log.With("usecase", "support"),
 	}
 }
@@ -49,10 +47,7 @@ func (uc *SupportUseCase) HandleUserMessage(ctx context.Context, msg IncomingMes
 		return nil, fmt.Errorf("support: save: %w", err)
 	}
 
-	forwardText := fmt.Sprintf("📩 *@%s* (`%d`)\n\n%s", msg.Username, msg.TelegramID, msg.Text)
-	if err := uc.forward(ctx, uc.adminID, msg.FileID, forwardText); err != nil {
-		uc.log.Warn("support: forward to admin failed", "err", err)
-	}
+	// Admin notification with reply button is handled by the transport layer (bot.go).
 	return m, nil
 }
 
@@ -83,3 +78,8 @@ func (uc *SupportUseCase) forward(ctx context.Context, telegramID int64, fileID,
 	return uc.sender.SendText(ctx, telegramID, text)
 }
 
+
+// GetHistory returns the last support messages for a given user.
+func (uc *SupportUseCase) GetHistory(ctx context.Context, telegramID int64) ([]*ticket.Message, error) {
+	return uc.tickets.FindByTelegramID(ctx, telegramID)
+}

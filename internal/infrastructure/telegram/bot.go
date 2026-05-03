@@ -1,4 +1,4 @@
-// Package telegram implements the Telegram bot adapter: handler registration and message sending.
+// Package telegram implements the Telegram bot adapter.
 package telegram
 
 import (
@@ -13,6 +13,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
 
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/ticket"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/repository"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
@@ -34,14 +35,17 @@ type Bot struct {
 	userUC      *usecase.UserUseCase
 	supportUC   *usecase.SupportUseCase
 	broadcastUC *usecase.BroadcastUseCase
-
-	// sessionRepo persists reply context across restarts.
-	// When admin clicks "Reply", we store which user they're replying to in SQLite.
 	sessionRepo *repository.AdminSessionRepository
 }
 
-// New constructs and configures the bot. Use cases can be injected later via InjectUseCases.
-func New(token string, adminID int64, userUC *usecase.UserUseCase, sessionRepo *repository.AdminSessionRepository, log *slog.Logger) (*Bot, error) {
+// New constructs and configures the bot.
+func New(
+	token string,
+	adminID int64,
+	userUC *usecase.UserUseCase,
+	sessionRepo *repository.AdminSessionRepository,
+	log *slog.Logger,
+) (*Bot, error) {
 	b, err := tele.NewBot(tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -51,9 +55,9 @@ func New(token string, adminID int64, userUC *usecase.UserUseCase, sessionRepo *
 	}
 
 	bot := &Bot{
-		b:              b,
-		adminID:        adminID,
-		log:            log.With("component", "telegram"),
+		b:           b,
+		adminID:     adminID,
+		log:         log.With("component", "telegram"),
 		userUC:      userUC,
 		sessionRepo: sessionRepo,
 	}
@@ -61,29 +65,22 @@ func New(token string, adminID int64, userUC *usecase.UserUseCase, sessionRepo *
 	return bot, nil
 }
 
-// InjectUseCases sets the support and broadcast use cases after construction.
-// Required because Bot implements port.Sender which those use cases depend on,
-// so they can only be built after the bot exists.
+// InjectUseCases sets support and broadcast use cases after construction.
 func (bot *Bot) InjectUseCases(supportUC *usecase.SupportUseCase, broadcastUC *usecase.BroadcastUseCase) {
 	bot.supportUC = supportUC
 	bot.broadcastUC = broadcastUC
 }
 
-// Start begins long-polling (blocks until Stop is called).
 func (bot *Bot) Start() { bot.b.Start() }
+func (bot *Bot) Stop()  { bot.b.Stop() }
 
-// Stop gracefully stops the poller.
-func (bot *Bot) Stop() { bot.b.Stop() }
+// ── port.Sender implementation ────────────────────────────────────────────────
 
-// ── port.Sender implementation ─────────────────────────────────────────────────
-
-// SendText sends a plain Markdown message to a chat.
 func (bot *Bot) SendText(_ context.Context, telegramID int64, text string) error {
 	_, err := bot.b.Send(chatByID(telegramID), text, tele.ModeMarkdown)
 	return err
 }
 
-// SendPhoto sends a photo with a Markdown caption to a chat.
 func (bot *Bot) SendPhoto(_ context.Context, telegramID int64, fileID, caption string) error {
 	_, err := bot.b.Send(chatByID(telegramID), &tele.Photo{
 		File:    tele.File{FileID: fileID},
@@ -92,11 +89,47 @@ func (bot *Bot) SendPhoto(_ context.Context, telegramID int64, fileID, caption s
 	return err
 }
 
+// ── Keyboards ─────────────────────────────────────────────────────────────────
+
+// mainMenu returns the inline keyboard shown after /start for linked users.
+func mainMenu() *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.InlineKeyboard = [][]tele.InlineButton{
+		{{Text: "📊 Статус подписки", Data: "cmd:status"}},
+		{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
+	}
+	return m
+}
+
+// statusMenu returns the "Refresh" button shown under /status.
+func statusMenu() *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.InlineKeyboard = [][]tele.InlineButton{
+		{{Text: "🔄 Обновить", Data: "cmd:status"}},
+	}
+	return m
+}
+
+// replyMarkup builds the "↩️ Reply" button for admin notification messages.
+func replyMarkup(targetTgID int64) *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.InlineKeyboard = [][]tele.InlineButton{
+		{{
+			Unique: "reply_to_user",
+			Text:   "↩️ Ответить",
+			Data:   strconv.FormatInt(targetTgID, 10),
+		}},
+	}
+	return m
+}
+
 // ── Handler registration ──────────────────────────────────────────────────────
+
+var replyBtn = tele.InlineButton{Unique: "reply_to_user"}
+
 func (bot *Bot) registerHandlers() {
-	// Global middleware: panic recovery.
-	bot.b.Use(middleware.Recover(func(err error) {
-		bot.log.Error("handler panic", "err", err)
+	bot.b.Use(middleware.Recover(func(err error, c tele.Context) {
+		bot.log.Error("handler panic", "err", err, "sender", c.Sender().ID)
 	}))
 
 	// User commands.
@@ -104,22 +137,24 @@ func (bot *Bot) registerHandlers() {
 	bot.b.Handle("/status", bot.handleStatus)
 	bot.b.Handle("/support", bot.handleSupportPrompt)
 
-	// Admin-only commands — guarded by adminOnly middleware at route level.
-	adminGroup := bot.b.Group()
-	adminGroup.Use(bot.adminOnly)
-	adminGroup.Handle("/broadcast", bot.handleBroadcast)
-	adminGroup.Handle("/bind", bot.handleBind)
-	adminGroup.Handle("/sync", bot.handleSync)
+	// Admin-only commands.
+	admin := bot.b.Group()
+	admin.Use(bot.adminOnly)
+	admin.Handle("/broadcast", bot.handleBroadcast)
+	admin.Handle("/bind", bot.handleBind)
+	admin.Handle("/sync", bot.handleSync)
+	admin.Handle("/users", bot.handleUsers)
+	admin.Handle("/history", bot.handleHistory)
 
-	// Callback buttons.
+	// Inline button callbacks.
 	bot.b.Handle(&replyBtn, bot.handleReplyCallback)
+	bot.b.Handle(tele.OnCallback, bot.handleCallback)
 
-	// Free-text and photo — routed differently for admin vs user.
+	// Free-text and photos — routed by sender role.
 	bot.b.Handle(tele.OnText, bot.routeText)
 	bot.b.Handle(tele.OnPhoto, bot.routePhoto)
 }
 
-// adminOnly is a middleware that silently drops non-admin messages.
 func (bot *Bot) adminOnly(next tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		if c.Sender().ID != bot.adminID {
@@ -137,20 +172,33 @@ func (bot *Bot) handleStart(c tele.Context) error {
 
 	u, err := bot.userUC.RegisterOrGet(ctx, c.Sender().ID, c.Sender().Username)
 	if err != nil {
-		bot.log.Error("start: register failed", "err", err, "user", c.Sender().ID)
+		bot.log.Error("start: register failed", "err", err)
 		return c.Send("⚠️ Произошла ошибка. Попробуйте позже.")
 	}
 
 	if u.IsLinked() {
-		return c.Send("✅ Аккаунт привязан.\n\n/status — статус подписки\n/support — написать в поддержку")
+		return c.Send(
+			"✅ Аккаунт привязан. Выберите действие:",
+			mainMenu(),
+		)
 	}
-	return c.Send("👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\nНапишите в /support — администратор поможет.")
+	return c.Send(
+		"👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\n" +
+			"Напишите в поддержку — администратор поможет.",
+		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
+			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
+		}},
+	)
 }
 
 func (bot *Bot) handleStatus(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
+	return bot.sendStatus(ctx, c)
+}
 
+// sendStatus is the shared logic for /status command and "🔄 Обновить" callback.
+func (bot *Bot) sendStatus(ctx context.Context, c tele.Context) error {
 	sub, err := bot.userUC.GetSubscription(ctx, c.Sender().ID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -187,16 +235,81 @@ func (bot *Bot) handleStatus(c tele.Context) error {
 		expire,
 		sub.SubscriptionURL,
 	)
-	return c.Send(text, tele.ModeMarkdown, tele.NoPreview)
+	return c.Send(text, tele.ModeMarkdown, tele.NoPreview, statusMenu())
 }
+
+// editStatus edits the existing message in place (used by "🔄 Обновить" callback).
+// Falls back to sending a new message if editing fails (e.g. message too old).
+func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
+	sub, err := bot.userUC.GetSubscription(ctx, c.Sender().ID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return c.Send("❌ Аккаунт не найден. Попробуйте /start.")
+		}
+		return c.Send("⚠️ Не удалось получить статус. Попробуйте позже.")
+	}
+
+	statusLabel := "🟢 Активна"
+	if !sub.IsActive || sub.IsExpired() {
+		statusLabel = "🔴 Неактивна"
+	}
+
+	remaining := "∞"
+	if sub.TotalTrafficBytes > 0 {
+		remaining = formatBytes(sub.RemainingTrafficBytes())
+	}
+
+	expire := "Бессрочно"
+	if sub.ExpireDate != nil {
+		expire = sub.ExpireDate.Format("02.01.2006")
+	}
+
+	text := fmt.Sprintf(
+		"📊 *Статус подписки*\n\n"+
+			"Статус: %s\n"+
+			"Использовано: %s\n"+
+			"Остаток: %s\n"+
+			"Истекает: %s\n\n"+
+			"🔗 [Ссылка на подписку](%s)",
+		statusLabel,
+		formatBytes(sub.UsedTrafficBytes),
+		remaining,
+		expire,
+		sub.SubscriptionURL,
+	)
+
+	_, editErr := bot.b.Edit(c.Message(), text, tele.ModeMarkdown, tele.NoPreview, statusMenu())
+	if editErr != nil {
+		// Message may be too old to edit — fall back to new message.
+		return c.Send(text, tele.ModeMarkdown, tele.NoPreview, statusMenu())
+	}
+	return nil
+}
+
 
 func (bot *Bot) handleSupportPrompt(c tele.Context) error {
 	return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
 }
 
-// ── Message routing ───────────────────────────────────────────────────────────
+// ── Inline callback router ────────────────────────────────────────────────────
 
-var replyBtn = tele.InlineButton{Unique: "reply_to_user"}
+// handleCallback routes generic inline button presses (cmd:*).
+func (bot *Bot) handleCallback(c tele.Context) error {
+	_ = c.Respond() // acknowledge immediately to remove loading spinner
+
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
+
+	switch c.Data() {
+	case "cmd:status":
+		return bot.editStatus(ctx, c)
+	case "cmd:support":
+		return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
+	}
+	return nil
+}
+
+// ── Support messaging ─────────────────────────────────────────────────────────
 
 func (bot *Bot) routeText(c tele.Context) error {
 	if c.Sender().ID == bot.adminID {
@@ -216,17 +329,24 @@ func (bot *Bot) handleUserText(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
-	_, err := bot.supportUC.HandleUserMessage(ctx, usecase.IncomingMessage{
+	if _, err := bot.supportUC.HandleUserMessage(ctx, usecase.IncomingMessage{
 		TelegramID: c.Sender().ID,
 		Username:   c.Sender().Username,
 		Text:       c.Text(),
-	})
-	if err != nil {
+	}); err != nil {
 		bot.log.Error("support: handle text", "err", err)
 		return c.Send("⚠️ Не удалось доставить сообщение. Попробуйте позже.")
 	}
 
-	bot.notifyAdminAboutMessage(ctx, c.Sender().ID, c.Sender().Username, c.Text())
+	if _, err := bot.b.Send(
+		chatByID(bot.adminID),
+		fmt.Sprintf("📩 *@%s* (`%d`)\n\n%s", c.Sender().Username, c.Sender().ID, c.Text()),
+		tele.ModeMarkdown,
+		replyMarkup(c.Sender().ID),
+	); err != nil {
+		bot.log.Warn("support: notify admin failed", "err", err)
+	}
+
 	return c.Send("✅ Сообщение получено — ответим скоро!")
 }
 
@@ -238,20 +358,27 @@ func (bot *Bot) handleUserPhoto(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
-	_, err := bot.supportUC.HandleUserMessage(ctx, usecase.IncomingMessage{
+	if _, err := bot.supportUC.HandleUserMessage(ctx, usecase.IncomingMessage{
 		TelegramID: c.Sender().ID,
 		Username:   c.Sender().Username,
 		Text:       c.Message().Caption,
 		FileID:     photo.FileID,
-	})
-	if err != nil {
+	}); err != nil {
 		bot.log.Error("support: handle photo", "err", err)
 		return c.Send("⚠️ Не удалось доставить фото.")
 	}
 
 	fwdText := fmt.Sprintf("📸 *@%s* (`%d`) прислал фото.\n\n%s",
 		c.Sender().Username, c.Sender().ID, c.Message().Caption)
-	bot.notifyAdminWithPhoto(ctx, photo.FileID, c.Sender().ID, fwdText)
+	if _, err := bot.b.Send(
+		chatByID(bot.adminID),
+		&tele.Photo{File: tele.File{FileID: photo.FileID}, Caption: fwdText},
+		tele.ModeMarkdown,
+		replyMarkup(c.Sender().ID),
+	); err != nil {
+		bot.log.Warn("support: notify admin (photo) failed", "err", err)
+	}
+
 	return c.Send("✅ Фото получено!")
 }
 
@@ -266,21 +393,22 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
-	session := repository.AdminSession{
+	if err := bot.sessionRepo.Save(ctx, repository.AdminSession{
 		MessageID:  int(c.Message().ID),
 		TargetTgID: targetID,
 		ExpiresAt:  time.Now().Add(replyTTL),
-	}
-	if err := bot.sessionRepo.Save(ctx, session); err != nil {
+	}); err != nil {
 		bot.log.Error("session save failed", "err", err)
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{
-		Text: fmt.Sprintf("Ответьте reply на это сообщение, чтобы написать пользователю %d", targetID),
+		Text: fmt.Sprintf("Ответьте reply на это сообщение → пользователь %d", targetID),
 	})
-	_, _ = bot.b.Send(chatByID(bot.adminID),
-		fmt.Sprintf("✏️ Ответьте reply на *это* сообщение для пользователя `%d`:", targetID),
-		tele.ModeMarkdown)
+	_, _ = bot.b.Send(
+		chatByID(bot.adminID),
+		fmt.Sprintf("✏️ Ответьте *reply* на это сообщение для пользователя `%d`:", targetID),
+		tele.ModeMarkdown,
+	)
 	return nil
 }
 
@@ -295,14 +423,13 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 
 	session, err := bot.sessionRepo.Get(ctx, replyTo.ID)
 	if errors.Is(err, apperr.ErrNotFound) {
-		return nil // no pending reply for this message
+		return nil
 	}
 	if err != nil {
 		bot.log.Error("session get failed", "err", err)
 		return nil
 	}
 
-	// Consume the session — one reply per button click.
 	if err := bot.sessionRepo.Delete(ctx, replyTo.ID); err != nil {
 		bot.log.Warn("session delete failed", "err", err)
 	}
@@ -311,7 +438,10 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 		bot.log.Error("support: admin reply failed", "err", err)
 		return c.Send("⚠️ Не удалось отправить ответ.")
 	}
-	return c.Send(fmt.Sprintf("✅ Ответ отправлен пользователю `%d`.", session.TargetTgID), tele.ModeMarkdown)
+	return c.Send(
+		fmt.Sprintf("✅ Ответ отправлен пользователю `%d`.", session.TargetTgID),
+		tele.ModeMarkdown,
+	)
 }
 
 // ── Admin commands ────────────────────────────────────────────────────────────
@@ -361,7 +491,10 @@ func (bot *Bot) handleBind(c tele.Context) error {
 		return c.Send("⚠️ Ошибка привязки: " + err.Error())
 	}
 	return c.Send(
-		fmt.Sprintf("✅ Пользователь `%d` привязан к UUID `%s`.\n\nЕсли ещё не запускал бота — попросите нажать /start.", targetID, parts[2]),
+		fmt.Sprintf(
+			"✅ Пользователь `%d` привязан к UUID `%s`.\n\nЕсли ещё не запускал бота — попросите нажать /start.",
+			targetID, parts[2],
+		),
 		tele.ModeMarkdown,
 	)
 }
@@ -375,45 +508,107 @@ func (bot *Bot) handleSync(c tele.Context) error {
 		return c.Send("⚠️ Ошибка синхронизации: " + err.Error())
 	}
 	return c.Send(fmt.Sprintf(
-		"✅ Синхронизация завершена\n\nВсего в панели: %d\nС telegram_id: %d\nСоздано: %d\nОбновлено: %d\nПропущено: %d",
+		"✅ Синхронизация завершена\n\n"+
+			"Всего в панели: %d\n"+
+			"С telegram\\_id: %d\n"+
+			"Создано: %d\n"+
+			"Обновлено: %d\n"+
+			"Пропущено: %d",
 		result.Total, result.Linked, result.Created, result.Updated, result.Skipped,
-	))
+	), tele.ModeMarkdown)
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// handleUsers: /users — list of all linked users with messaging status.
+func (bot *Bot) handleUsers(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
 
-func (bot *Bot) notifyAdminAboutMessage(ctx context.Context, senderID int64, username, text string) {
-	btn := tele.InlineButton{
-		Unique: "reply_to_user",
-		Text:   "↩️ Ответить",
-		Data:   strconv.FormatInt(senderID, 10),
+	users, err := bot.userUC.ListLinked(ctx)
+	if err != nil {
+		return c.Send("⚠️ Ошибка получения списка: " + err.Error())
 	}
-	markup := &tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{{btn}}}
-	fwdText := fmt.Sprintf("📩 *@%s* (`%d`)\n\n%s", username, senderID, text)
+	if len(users) == 0 {
+		return c.Send("Нет привязанных пользователей.")
+	}
 
-	if _, err := bot.b.Send(chatByID(bot.adminID), fwdText, tele.ModeMarkdown, markup); err != nil {
-		bot.log.Warn("support: notify admin failed", "err", err)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "👥 *Привязано: %d*\n\n", len(users))
+
+	const pageSize = 50
+	for i, u := range users {
+		if i >= pageSize {
+			fmt.Fprintf(&sb, "\n_...и ещё %d. Показаны первые %d._", len(users)-pageSize, pageSize)
+			break
+		}
+		canMsg := "❌"
+		if u.CanMessage {
+			canMsg = "✅"
+		}
+		name := u.Username
+		if name == "" {
+			name = "—"
+		}
+		fmt.Fprintf(&sb, "%d. @%s `%d` %s\n", i+1, name, u.TelegramID, canMsg)
 	}
+	sb.WriteString("\n✅ — получает рассылки  ❌ — не запускал бота")
+
+	return c.Send(sb.String(), tele.ModeMarkdown)
 }
 
-func (bot *Bot) notifyAdminWithPhoto(ctx context.Context, fileID string, senderID int64, caption string) {
-	btn := tele.InlineButton{
-		Unique: "reply_to_user",
-		Text:   "↩️ Ответить",
-		Data:   strconv.FormatInt(senderID, 10),
+// handleHistory: /history <telegram_id> — last N support messages for a user.
+func (bot *Bot) handleHistory(c tele.Context) error {
+	parts := strings.Fields(c.Text())
+	if len(parts) != 2 {
+		return c.Send("Использование: /history <telegram_id>")
 	}
-	markup := &tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{{btn}}}
-	photo := &tele.Photo{File: tele.File{FileID: fileID}, Caption: caption}
+	targetID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return c.Send("⚠️ Неверный telegram_id.")
+	}
 
-	if _, err := bot.b.Send(chatByID(bot.adminID), photo, tele.ModeMarkdown, markup); err != nil {
-		bot.log.Warn("support: notify admin (photo) failed", "err", err)
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
+
+	msgs, err := bot.supportUC.GetHistory(ctx, targetID)
+	if err != nil {
+		return c.Send("⚠️ Ошибка получения истории: " + err.Error())
 	}
+	if len(msgs) == 0 {
+		return c.Send("Сообщений от этого пользователя нет.")
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📋 *История для* `%d`\n\n", targetID)
+
+	const maxMessages = 20
+	start := 0
+	if len(msgs) > maxMessages {
+		start = len(msgs) - maxMessages
+		fmt.Fprintf(&sb, "_Показаны последние %d из %d_\n\n", maxMessages, len(msgs))
+	}
+
+	for _, m := range msgs[start:] {
+		dir := "👤"
+		if m.Direction == ticket.DirectionAdminToUser {
+			dir = "🔧"
+		}
+		ts := m.CreatedAt.Format("02.01 15:04")
+		text := m.Text
+		if len(text) > 200 {
+			text = text[:200] + "..."
+		}
+		if text == "" {
+			text = "[фото]"
+		}
+		fmt.Fprintf(&sb, "%s `%s`\n%s\n\n", dir, ts, text)
+	}
+
+	return c.Send(sb.String(), tele.ModeMarkdown)
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 func chatByID(id int64) *tele.Chat { return &tele.Chat{ID: id} }
-
-// Compile-time check: *Bot must satisfy port.Sender.
-var _ port.Sender = (*Bot)(nil)
 
 func formatBytes(b int64) string {
 	if b < 0 {
@@ -430,3 +625,6 @@ func formatBytes(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
+
+// Compile-time check: *Bot must satisfy port.Sender.
+var _ port.Sender = (*Bot)(nil)

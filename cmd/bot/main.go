@@ -64,7 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	supportUC   := usecase.NewSupportUseCase(ticketRepo, bot, cfg.Telegram.AdminID, log)
+	supportUC   := usecase.NewSupportUseCase(ticketRepo, bot, log)
 	broadcastUC := usecase.NewBroadcastUseCase(userRepo, bot, log)
 	bot.InjectUseCases(supportUC, broadcastUC)
 
