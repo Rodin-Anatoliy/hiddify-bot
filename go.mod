@@ -5,7 +5,6 @@ go 1.22
 require (
 	golang.org/x/sync v0.10.0
 	gopkg.in/telebot.v3 v3.2.1
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.33.1
 )
 

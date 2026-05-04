@@ -4,115 +4,127 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"regexp"
+	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
-var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?}`)
-
 type Config struct {
-	Telegram TelegramConfig `yaml:"telegram"`
-	Hiddify  HiddifyConfig  `yaml:"hiddify"`
-	DB       DBConfig       `yaml:"db"`
-	Log      LogConfig      `yaml:"log"`
+	Telegram TelegramConfig
+	Hiddify  HiddifyConfig
+	DB       DBConfig
+	Log      LogConfig
 }
 
 type TelegramConfig struct {
-	Token   string `yaml:"token"`
-	AdminID int64  `yaml:"admin_id"`
-	Timeout int    `yaml:"timeout"`
+	Token   string
+	AdminID int64
+	Timeout int // long-polling timeout in seconds
 }
 
 type HiddifyConfig struct {
-	BaseURL    string `yaml:"base_url"`
-	AdminProxy string `yaml:"admin_proxy"`
-	APIKey     string `yaml:"api_key"`
+	BaseURL    string
+	AdminProxy string
+	APIKey     string
 }
 
 type DBConfig struct {
-	Path string `yaml:"path"`
+	Path string
 }
 
 type LogConfig struct {
-	Level string `yaml:"level"`
+	Level string
 }
 
-func MustLoad(path string) *Config {
+// MustLoad reads .env (if present) then loads config from environment variables.
+// Panics on missing required values — intended to be called once at startup.
+func MustLoad() *Config {
 	loadDotEnv(".env")
-	cfg := &Config{}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		panic("config: read " + path + ": " + err.Error())
+
+	cfg := &Config{
+		Telegram: TelegramConfig{
+			Token:   getenv("TG_TOKEN", ""),
+			AdminID: getenvInt64("TG_ADMIN_ID", 0),
+			Timeout: getenvInt("TG_TIMEOUT", 10),
+		},
+		Hiddify: HiddifyConfig{
+			BaseURL:    getenv("HIDDIFY_BASE_URL", ""),
+			AdminProxy: getenv("HIDDIFY_ADMIN_PROXY", ""),
+			APIKey:     getenv("HIDDIFY_API_KEY", ""),
+		},
+		DB: DBConfig{
+			Path: getenv("DB_PATH", "data/bot.db"),
+		},
+		Log: LogConfig{
+			Level: getenv("LOG_LEVEL", "info"),
+		},
 	}
 
-	expanded := expandEnv(string(data))
-	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
-		panic("config: " + err.Error())
-	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.validate(); err != nil {
 		panic("config: " + err.Error())
 	}
 	return cfg
 }
 
-func (cfg *Config) Validate() error {
+func (cfg *Config) validate() error {
 	var missing []string
-	if strings.TrimSpace(cfg.Telegram.Token) == "" {
-		missing = append(missing, "telegram.token")
+	if cfg.Telegram.Token == "" {
+		missing = append(missing, "TG_TOKEN")
 	}
 	if cfg.Telegram.AdminID == 0 {
-		missing = append(missing, "telegram.admin_id")
+		missing = append(missing, "TG_ADMIN_ID")
 	}
-	if strings.TrimSpace(cfg.Hiddify.BaseURL) == "" {
-		missing = append(missing, "hiddify.base_url")
+	if cfg.Hiddify.BaseURL == "" {
+		missing = append(missing, "HIDDIFY_BASE_URL")
 	}
-	if strings.TrimSpace(cfg.Hiddify.AdminProxy) == "" {
-		missing = append(missing, "hiddify.admin_proxy")
+	if cfg.Hiddify.AdminProxy == "" {
+		missing = append(missing, "HIDDIFY_ADMIN_PROXY")
 	}
-	if strings.TrimSpace(cfg.Hiddify.APIKey) == "" {
-		missing = append(missing, "hiddify.api_key")
-	}
-	if strings.TrimSpace(cfg.DB.Path) == "" {
-		cfg.DB.Path = "data/bot.db"
-	}
-	if strings.TrimSpace(cfg.Log.Level) == "" {
-		cfg.Log.Level = "info"
-	}
-	if cfg.Telegram.Timeout <= 0 {
-		cfg.Telegram.Timeout = 10 // default polling timeout in seconds
+	if cfg.Hiddify.APIKey == "" {
+		missing = append(missing, "HIDDIFY_API_KEY")
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required values: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }
 
-func expandEnv(value string) string {
-	return envPattern.ReplaceAllStringFunc(value, func(match string) string {
-		parts := envPattern.FindStringSubmatch(match)
-		if len(parts) == 0 {
-			return match
-		}
-		if envValue, ok := os.LookupEnv(parts[1]); ok {
-			return envValue
-		}
-		if len(parts) >= 4 {
-			return parts[3]
-		}
-		return ""
-	})
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func getenv(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }
 
+func getenvInt(key string, fallback int) int {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+func getenvInt64(key string, fallback int64) int64 {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+// loadDotEnv reads a .env file and sets variables that are not already set.
+// Does nothing if the file doesn't exist — safe to call in any environment.
 func loadDotEnv(path string) {
-	file, err := os.Open(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer f.Close()
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -124,10 +136,11 @@ func loadDotEnv(path string) {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		if key != "" {
-			if _, exists := os.LookupEnv(key); exists {
-				continue
-			}
+		if key == "" {
+			continue
+		}
+		// Never override variables already set in the environment.
+		if _, exists := os.LookupEnv(key); !exists {
 			_ = os.Setenv(key, value)
 		}
 	}

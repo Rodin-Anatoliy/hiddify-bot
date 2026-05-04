@@ -13,7 +13,6 @@ coverage.html
 # Secrets — never commit these
 .env
 !.env.example
-!config.yml.example
 
 # Runtime data
 data/*.db

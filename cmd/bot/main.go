@@ -19,7 +19,7 @@ import (
 var commit = "unknown"
 
 func main() {
-	cfg := config.MustLoad("config.yml")
+	cfg := config.MustLoad()
 
 	log := logger.New(cfg.Log.Level)
 	slog.SetDefault(log)
