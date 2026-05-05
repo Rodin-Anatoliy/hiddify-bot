@@ -132,12 +132,9 @@ func (bot *Bot) registerHandlers() {
 		return func(c tele.Context) error {
 			defer func() {
 				if r := recover(); r != nil {
-					var err error
-					switch t := r.(type) {
-					case error:
-						err = t
-					default:
-						err = fmt.Errorf("%v", t)
+					err := fmt.Errorf("%v", r)
+					if e, ok := r.(error); ok {
+							err = e
 					}
 
 					bot.log.Error("handler panic",
