@@ -10,4 +10,3 @@ linters:
     - ineffassign   # Unused assignments
     - staticcheck   # Static checker
     - unused        # Unused code
-    - gosimple      # Simplification suggestions
