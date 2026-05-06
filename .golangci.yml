@@ -9,6 +9,5 @@ linters:
     - govet         # Go vet
     - ineffassign   # Unused assignments
     - staticcheck   # Static checker
-    - typecheck     # Type checking
     - unused        # Unused code
     - gosimple      # Simplification suggestions
