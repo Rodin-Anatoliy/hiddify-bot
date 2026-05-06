@@ -31,10 +31,14 @@ func main() {
 		log.Error("database init failed", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Warn("database close failed", "err", err)
+		}
+	}()
 
-	userRepo    := repository.NewUserRepository(db)
-	ticketRepo  := repository.NewTicketRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	ticketRepo := repository.NewTicketRepository(db)
 	sessionRepo := repository.NewAdminSessionRepository(db)
 
 	// Clean up expired admin reply sessions from previous runs.
@@ -64,7 +68,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	supportUC   := usecase.NewSupportUseCase(ticketRepo, bot, log)
+	supportUC := usecase.NewSupportUseCase(ticketRepo, bot, log)
 	broadcastUC := usecase.NewBroadcastUseCase(userRepo, bot, log)
 	bot.InjectUseCases(supportUC, broadcastUC)
 

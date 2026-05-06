@@ -107,7 +107,9 @@ func (c *Client) get(ctx context.Context, path string, dest any) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	return c.decode(resp, dest)
 }
 
@@ -127,7 +129,9 @@ func (c *Client) patch(ctx context.Context, path string, payload any) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
