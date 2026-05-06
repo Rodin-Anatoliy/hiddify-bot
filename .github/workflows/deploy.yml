@@ -60,6 +60,7 @@ jobs:
         with:
           name: hiddify-bot-binary
           path: .
+          merge-multiple: true
       - name: Copy binary to server
         uses: appleboy/scp-action@v0.1.6
         with:
@@ -67,7 +68,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
-          source: hiddify-bot-binary/bin/hiddify-bot
+          source: bin/hiddify-bot
           target: /opt/hiddify-bot/
       - name: Restart service
         uses: appleboy/ssh-action@v1.2.5
