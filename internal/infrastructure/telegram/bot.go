@@ -127,16 +127,17 @@ func replyMarkup(targetTgID int64) *tele.ReplyMarkup {
 var replyBtn = tele.InlineButton{Unique: "reply_to_user"}
 
 func (bot *Bot) registerHandlers() {
-	// Middleware: Recover from panics.
 	bot.b.Use(func(next tele.HandlerFunc) tele.HandlerFunc {
 		return func(c tele.Context) error {
 			defer func() {
 				if r := recover(); r != nil {
-					err := fmt.Errorf("%v", r)
-					if e, ok := r.(error); ok {
-							err = e
+					var err error
+					switch t := r.(type) {
+					case error:
+						err = t
+					default:
+						err = fmt.Errorf("%v", t)
 					}
-
 					bot.log.Error("handler panic",
 						"err", err,
 						"sender", c.Sender().ID,
@@ -199,7 +200,7 @@ func (bot *Bot) handleStart(c tele.Context) error {
 		)
 	}
 	return c.Send(
-		"👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\n"+
+		"👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\n" +
 			"Напишите в поддержку — администратор поможет.",
 		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
 			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
@@ -301,6 +302,7 @@ func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 	}
 	return nil
 }
+
 
 func (bot *Bot) handleSupportPrompt(c tele.Context) error {
 	return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")

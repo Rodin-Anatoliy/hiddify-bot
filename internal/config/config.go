@@ -1,3 +1,6 @@
+// Package config loads application configuration from environment variables.
+// Secrets and settings are unified in a single .env file — no config.yml needed.
+// In production (Docker), environment variables are passed directly via env_file.
 package config
 
 import (
@@ -8,6 +11,7 @@ import (
 	"strings"
 )
 
+// Config holds all application settings.
 type Config struct {
 	Telegram TelegramConfig
 	Hiddify  HiddifyConfig
@@ -23,7 +27,8 @@ type TelegramConfig struct {
 
 type HiddifyConfig struct {
 	BaseURL    string
-	AdminProxy string
+	AdminProxy string // random path for admin panel access
+	UserProxy  string // random path for user subscription links
 	APIKey     string
 }
 
@@ -49,6 +54,7 @@ func MustLoad() *Config {
 		Hiddify: HiddifyConfig{
 			BaseURL:    getenv("HIDDIFY_BASE_URL", ""),
 			AdminProxy: getenv("HIDDIFY_ADMIN_PROXY", ""),
+			UserProxy:  getenv("HIDDIFY_USER_PROXY", ""),
 			APIKey:     getenv("HIDDIFY_API_KEY", ""),
 		},
 		DB: DBConfig{
@@ -122,9 +128,7 @@ func loadDotEnv(path string) {
 	if err != nil {
 		return
 	}
-	defer func() {
-		_ = f.Close()
-	}()
+	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {

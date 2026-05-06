@@ -152,9 +152,7 @@ func (r *UserRepository) FindAllLinked(ctx context.Context) ([]*user.User, error
 	if err != nil {
 		return nil, fmt.Errorf("user find linked: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer rows.Close()
 	return collectUsers(rows)
 }
 
@@ -167,9 +165,7 @@ func (r *UserRepository) FindAllWithUUID(ctx context.Context) ([]*user.User, err
 	if err != nil {
 		return nil, fmt.Errorf("user find all: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer rows.Close()
 	return collectUsers(rows)
 }
 
@@ -200,9 +196,7 @@ func (r *TicketRepository) FindByTelegramID(ctx context.Context, telegramID int6
 	if err != nil {
 		return nil, fmt.Errorf("ticket list: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer rows.Close()
 
 	var msgs []*ticket.Message
 	for rows.Next() {

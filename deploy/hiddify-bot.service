@@ -1,0 +1,32 @@
+[Unit]
+Description=Hiddify Telegram Bot
+After=network.target
+# Restart after Hiddify services if they restart
+After=hiddify-panel.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hiddify-bot
+
+# Reads KEY=VALUE pairs directly — same .env format
+EnvironmentFile=/opt/hiddify-bot/.env
+
+ExecStart=/opt/hiddify-bot/hiddify-bot
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Auto-restart on crash, wait 5s before retry
+Restart=on-failure
+RestartSec=5s
+
+# Graceful shutdown timeout
+TimeoutStopSec=30s
+
+LimitNOFILE=65536
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hiddify-bot
+
+[Install]
+WantedBy=multi-user.target

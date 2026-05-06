@@ -31,14 +31,10 @@ func main() {
 		log.Error("database init failed", "err", err)
 		os.Exit(1)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Warn("database close failed", "err", err)
-		}
-	}()
+	defer db.Close()
 
-	userRepo := repository.NewUserRepository(db)
-	ticketRepo := repository.NewTicketRepository(db)
+	userRepo    := repository.NewUserRepository(db)
+	ticketRepo  := repository.NewTicketRepository(db)
 	sessionRepo := repository.NewAdminSessionRepository(db)
 
 	// Clean up expired admin reply sessions from previous runs.
@@ -52,6 +48,7 @@ func main() {
 	hiddifyClient := hiddify.NewClient(
 		cfg.Hiddify.BaseURL,
 		cfg.Hiddify.AdminProxy,
+		cfg.Hiddify.UserProxy,
 		cfg.Hiddify.APIKey,
 		log,
 	)
@@ -68,7 +65,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	supportUC := usecase.NewSupportUseCase(ticketRepo, bot, log)
+	supportUC   := usecase.NewSupportUseCase(ticketRepo, bot, log)
 	broadcastUC := usecase.NewBroadcastUseCase(userRepo, bot, log)
 	bot.InjectUseCases(supportUC, broadcastUC)
 

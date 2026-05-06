@@ -21,16 +21,18 @@ const defaultTimeout = 15 * time.Second
 type Client struct {
 	baseURL    string
 	adminProxy string
+	userProxy  string // path used in user-facing subscription URLs
 	apiKey     string
 	http       *http.Client
 	log        *slog.Logger
 }
 
 // NewClient constructs a ready-to-use Hiddify API client.
-func NewClient(baseURL, adminProxy, apiKey string, log *slog.Logger) *Client {
+func NewClient(baseURL, adminProxy, userProxy, apiKey string, log *slog.Logger) *Client {
 	return &Client{
 		baseURL:    baseURL,
 		adminProxy: adminProxy,
+		userProxy:  userProxy,
 		apiKey:     apiKey,
 		http:       &http.Client{Timeout: defaultTimeout},
 		log:        log.With("component", "hiddify_client"),
@@ -60,7 +62,7 @@ func (c *Client) GetUserByUUID(ctx context.Context, uuid string) (*subscription.
 	if err := c.get(ctx, path, &raw); err != nil {
 		return nil, err
 	}
-	return toStatus(raw, c.baseURL, uuid), nil
+	return toStatus(raw, c.baseURL, c.userProxy, uuid), nil
 }
 
 // GetUserByTelegramID finds the first panel user whose telegram_id matches.
@@ -71,7 +73,7 @@ func (c *Client) GetUserByTelegramID(ctx context.Context, telegramID int64) (*su
 	}
 	for _, u := range all {
 		if u.TelegramID != nil && *u.TelegramID == telegramID {
-			return toStatus(u, c.baseURL, u.UUID), u.UUID, nil
+			return toStatus(u, c.baseURL, c.userProxy, u.UUID), u.UUID, nil
 		}
 	}
 	return nil, "", apperr.ErrNotFound
@@ -107,9 +109,7 @@ func (c *Client) get(ctx context.Context, path string, dest any) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	defer resp.Body.Close()
 	return c.decode(resp, dest)
 }
 
@@ -129,9 +129,7 @@ func (c *Client) patch(ctx context.Context, path string, payload any) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
@@ -161,7 +159,7 @@ func (c *Client) setHeaders(req *http.Request) {
 	req.Header.Set("Accept", "application/json")
 }
 
-func toStatus(r apiUser, baseURL, uuid string) *subscription.Status {
+func toStatus(r apiUser, baseURL, userProxy, uuid string) *subscription.Status {
 	s := &subscription.Status{
 		UUID:              uuid,
 		UsedTrafficBytes:  gbToBytes(r.UsedTrafficGB),
@@ -179,7 +177,11 @@ func toStatus(r apiUser, baseURL, uuid string) *subscription.Status {
 		}
 	}
 	if s.SubscriptionURL == "" && uuid != "" {
-		s.SubscriptionURL = fmt.Sprintf("%s/%s/", baseURL, uuid)
+		if userProxy != "" {
+			s.SubscriptionURL = fmt.Sprintf("%s/%s/%s/", baseURL, userProxy, uuid)
+		} else {
+			s.SubscriptionURL = fmt.Sprintf("%s/%s/", baseURL, uuid)
+		}
 	}
 	return s
 }
