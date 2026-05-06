@@ -13,42 +13,40 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-
+          version: v2.12.1
   test:
     name: Test
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test -race -cover ./...
+      - run: go mod verify
+      - run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
   build:
     name: Build
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build Binary
-        # Явно указываем ОС и Архитектуру для Linux сервера
-        run: GOOS=linux GOARCH=amd64 go build -o bin/hiddify-bot main.go
-      - uses: actions/upload-artifact@v4
+      - run: go mod download
+      - run: make build-linux
+      - uses: actions/upload-artifact@v7
         with:
           name: hiddify-bot-binary
           path: bin/hiddify-bot
@@ -58,48 +56,44 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: hiddify-bot-binary
           path: .
-
-      # 1. Сначала останавливаем сервис и чистим место
-      - name: Prepare server
-        uses: appleboy/ssh-action@v1.2.0
+          merge-multiple: true
+      - name: Show downloaded artifact contents
+        run: |
+          pwd
+          ls -la
+          find . -maxdepth 4 -type f | sort
+      - name: Set server directory permissions
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
           script: |
-            sudo systemctl stop hiddify-bot || true
             sudo mkdir -p /opt/hiddify-bot
             sudo chown -R ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/hiddify-bot
-            rm -f /opt/hiddify-bot/hiddify-bot
-
-      # 2. Копируем новый бинарник
-      - name: Copy binary via SCP
-        uses: appleboy/scp-action@v0.1.7
+      - name: Copy binary to server
+        uses: appleboy/scp-action@v0.1.6
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
-          source: "hiddify-bot"
-          target: "/opt/hiddify-bot/"
-
-      # 3. Настройка прав и запуск
-      - name: Start service
-        uses: appleboy/ssh-action@v1.2.0
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
+          source: hiddify-bot
+          target: /opt/hiddify-bot/
+      - name: Restart service
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
           script: |
-            chmod +x /opt/hiddify-bot/hiddify-bot
+            sudo systemctl stop hiddify-bot  true
+            sudo chown ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/hiddify-bot/hiddify-bot
+            sudo chmod +x /opt/hiddify-bot/hiddify-bot
             sudo systemctl start hiddify-bot
-            # Короткая пауза, чтобы бот успел упасть, если есть ошибки в конфиге/БД
-            sleep 2
-            sudo systemctl status hiddify-bot
