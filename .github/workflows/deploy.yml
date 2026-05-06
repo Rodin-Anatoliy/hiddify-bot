@@ -21,7 +21,6 @@ jobs:
       - name: Run Linter
         uses: golangci/golangci-lint-action@v6
         with:
-          # Мы зафиксировали v1.62.2, чтобы не конфликтовать с твоим конфигом
           version: v1.62.2
 
   test:
@@ -45,7 +44,6 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build
-        # Собираем из cmd/bot, как мы выяснили
         run: GOOS=linux GOARCH=amd64 go build -o bin/hiddify-bot ./cmd/bot
       - uses: actions/upload-artifact@v4
         with:
@@ -70,7 +68,6 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
           script: |
-            # Останавливаем сервис, чтобы файл не был занят
             sudo systemctl stop hiddify-bot || true
             sudo mkdir -p /opt/hiddify-bot
             sudo chown -R ${{ secrets.SERVER_USER }} /opt/hiddify-bot
@@ -93,9 +90,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
           script: |
-            # Тот самый chmod, который ты вводил руками — теперь он тут навсегда
+            # Атомарная настройка: права + рестарт
             chmod +x /opt/hiddify-bot/hiddify-bot
-            sudo systemctl start hiddify-bot
-            # Даем сервису время "прочихаться" и проверяем статус
+            sudo systemctl restart hiddify-bot
             sleep 2
             sudo systemctl is-active hiddify-bot
