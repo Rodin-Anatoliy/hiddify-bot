@@ -13,27 +13,40 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      - name: Run Linter
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.62 # Стабильная версия, которая поймет твой конфиг
+          # Версия 1.62+ стабильна, но требует отсутствия 'version' в .golangci.yml
+          version: v1.62
 
-  build:
-    name: Build
+  test:
+    name: Test
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go test -race -cover ./...
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Build Binary
-        # Собираем строго под Linux, чтобы избежать сюрпризов
-        run: GOOS=linux GOARCH=amd64 go build -o bin/hiddify-bot main.go
+        # Исправлено: собираем из папки cmd/bot, как у тебя в проекте
+        run: GOOS=linux GOARCH=amd64 go build -o bin/hiddify-bot ./cmd/bot
       - uses: actions/upload-artifact@v4
         with:
           name: hiddify-bot-binary
@@ -49,8 +62,8 @@ jobs:
           name: hiddify-bot-binary
           path: .
 
-      # Мы объединяем всё в один SSH сеанс для скорости и надежности
-      - name: Deploy to Server
+      # Шаг 1: Подготовка (Останавливаем сервис ДО копирования)
+      - name: Prepare Server
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -58,14 +71,12 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
           script: |
-            # 1. Останавливаем сервис
             sudo systemctl stop hiddify-bot || true
-            
-            # 2. Создаем папку и забираем права (если вдруг слетели)
             sudo mkdir -p /opt/hiddify-bot
-            sudo chown -R ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/hiddify-bot
+            sudo chown -R ${{ secrets.SERVER_USER }} /opt/hiddify-bot
 
-      - name: Upload via SCP
+      # Шаг 2: Копирование бинарника
+      - name: Copy Binary via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -75,6 +86,7 @@ jobs:
           source: "hiddify-bot"
           target: "/opt/hiddify-bot/"
 
+      # Шаг 3: Финальная настройка прав и запуск
       - name: Finalize and Start
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -83,12 +95,10 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
           script: |
-            # Важнейший этап: возвращаем права после SCP
+            # Принудительно ставим права на исполнение
             chmod +x /opt/hiddify-bot/hiddify-bot
-            
-            # Перезапуск
-            sudo systemctl restart hiddify-bot
-            
-            # Быстрая проверка
-            sleep 1
+            # Запускаем сервис
+            sudo systemctl start hiddify-bot
+            # Проверяем, что он не упал через 2 секунды
+            sleep 2
             sudo systemctl is-active hiddify-bot
