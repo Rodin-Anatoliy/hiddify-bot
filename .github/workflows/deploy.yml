@@ -59,15 +59,25 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: hiddify-bot-binary
-      - name: Deploy to server
+          path: .
+      - name: Copy binary to server
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
+          source: bin/hiddify-bot
+          target: /opt/hiddify-bot/
+      - name: Restart service
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE || '' }}
           script: |
             sudo systemctl stop hiddify-bot || true
-            sudo cp hiddify-bot /opt/hiddify-bot/
             sudo chown ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/hiddify-bot/hiddify-bot
+            sudo chmod +x /opt/hiddify-bot/hiddify-bot
             sudo systemctl start hiddify-bot
