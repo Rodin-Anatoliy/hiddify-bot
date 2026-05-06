@@ -3,6 +3,7 @@ hiddify-bot
 hiddify-bot.exe
 *.exe
 /out/
+bin/
 
 # Test & coverage
 coverage.out
@@ -18,6 +19,7 @@ coverage.html
 data/*.db
 data/*.db-shm
 data/*.db-wal
+bot.log
 
 # Logs & temp
 *.log

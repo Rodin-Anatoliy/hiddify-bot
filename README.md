@@ -24,10 +24,10 @@ cp .env.example .env
 # Fill in TG_TOKEN, TG_ADMIN_ID, HIDDIFY_* values
 
 mkdir -p data
-make deploy        # builds Docker image and starts container
+make deploy        # builds binary and starts the bot
 ```
 
-For local development without Docker:
+For local development:
 
 ```bash
 go mod download
@@ -55,7 +55,7 @@ Dependency rule: `domain ← port ← usecase ← infrastructure ← cmd`
 
 ## Configuration
 
-Secrets live in `.env`, non-sensitive settings in `config.yml`:
+All settings live in `.env`:
 
 ```env
 TG_TOKEN=...
@@ -74,6 +74,46 @@ Telegram does not allow bots to initiate conversations. The flow:
 3. User opens the bot and presses `/start` → `can_message = true`
 4. Broadcast reaches them
 
-## License
+## Deployment
 
-MIT
+The bot is deployed via GitHub Actions CI/CD. On push to `main`, it runs tests, builds a Linux binary, and deploys it to the production server.
+
+### Setup CI/CD
+1. In your GitHub repo, go to Settings > Secrets and variables > Actions.
+2. Add secrets:
+   - `SERVER_HOST`: Your server IP/hostname (e.g., `vm703859.yourhost.com`)
+   - `SERVER_USER`: SSH username (e.g., `pro100click`)
+   - `SERVER_SSH_KEY`: Private SSH key for access (generate with `ssh-keygen`, add public key to server's `~/.ssh/authorized_keys`)
+
+### Production Setup
+On the server (`/opt/hiddify-bot/`):
+- `.env` with your secrets
+- `data/` directory for SQLite DB
+- systemd service: `/etc/systemd/system/hiddify-bot.service`
+
+Example service file:
+```
+[Unit]
+Description=Hiddify Bot
+After=network.target
+
+[Service]
+Type=simple
+User=pro100click
+WorkingDirectory=/opt/hiddify-bot
+ExecStart=/opt/hiddify-bot/hiddify-bot
+EnvironmentFile=/opt/hiddify-bot/.env
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start: `sudo systemctl enable hiddify-bot && sudo systemctl start hiddify-bot`
+
+### Manual Deploy (if needed)
+```bash
+make build-linux  # on your machine
+scp bin/hiddify-bot user@server:/opt/hiddify-bot/
+# Then on server: sudo systemctl restart hiddify-bot
+```

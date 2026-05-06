@@ -33,9 +33,17 @@ cover: ## Run tests and open HTML coverage report
 
 # ── Production ────────────────────────────────────────────────────────────────
 
-deploy: ## Build image and (re)start container — works for first run and updates
-	docker compose up -d --build
+build: ## Build the bot binary
+	mkdir -p bin
+	go build -ldflags="-X main.commit=$(COMMIT)" -o bin/hiddify-bot ./cmd/bot
 
-clean: ## Remove coverage artifacts and test cache
-	rm -f coverage.out coverage.html
+build-linux: ## Build the bot binary for Linux
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-X main.commit=$(COMMIT)" -o bin/hiddify-bot ./cmd/bot
+
+deploy: build ## Build and run the bot in background
+	nohup ./bin/hiddify-bot > bot.log 2>&1 &
+
+clean: ## Remove coverage artifacts, test cache and built binary
+	rm -f coverage.out coverage.html bin/hiddify-bot bot.log
 	go clean -testcache
