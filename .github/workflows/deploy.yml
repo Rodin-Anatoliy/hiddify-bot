@@ -61,6 +61,11 @@ jobs:
           name: hiddify-bot-binary
           path: .
           merge-multiple: true
+      - name: Show downloaded artifact contents
+        run: |
+          pwd
+          ls -la
+          find . -maxdepth 4 -type f | sort
       - name: Copy binary to server
         uses: appleboy/scp-action@v0.1.6
         with:
