@@ -14,7 +14,10 @@ Built as a Go portfolio project — Clean Architecture, testable, production-rea
 | `/sync` | Admin | Pull all panel users with `telegram_id` into local DB |
 | `/broadcast <text>` | Admin | Send text or photo to all active users |
 | `/users` | Admin | List all linked users with messaging status |
+| `/users unbound` | Admin | List Hiddify users without `telegram_id` |
+| `/users blocked` | Admin | List linked users the bot cannot message |
 | `/history <tg_id>` | Admin | View support message history for a user |
+| `/cancel` | Admin | Cancel the active support reply target |
 
 ## Deployment
 

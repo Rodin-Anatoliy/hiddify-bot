@@ -163,6 +163,14 @@ func (uc *UserUseCase) GetSubscription(ctx context.Context, telegramID int64) (*
 	return uc.hiddify.GetUserByUUID(ctx, u.HiddifyUUID)
 }
 
+// MarkCanMessage records whether Telegram delivery is currently possible.
+func (uc *UserUseCase) MarkCanMessage(ctx context.Context, telegramID int64, canMessage bool) error {
+	if err := uc.users.SetCanMessage(ctx, telegramID, canMessage); err != nil {
+		return fmt.Errorf("user mark can_message: %w", err)
+	}
+	return nil
+}
+
 // SyncFromHiddify pulls all panel users with a telegram_id and upserts local records.
 // Users created this way have CanMessage=false until they press /start.
 func (uc *UserUseCase) SyncFromHiddify(ctx context.Context) (*SyncResult, error) {
@@ -237,4 +245,20 @@ func (uc *UserUseCase) upsertFromPanel(ctx context.Context, pu PanelUserDTO, now
 // Includes users who haven't pressed /start yet (CanMessage=false).
 func (uc *UserUseCase) ListLinked(ctx context.Context) ([]*user.User, error) {
 	return uc.users.FindAllWithUUID(ctx)
+}
+
+// ListUnboundPanelUsers returns Hiddify users without telegram_id.
+func (uc *UserUseCase) ListUnboundPanelUsers(ctx context.Context) ([]PanelUserDTO, error) {
+	panelUsers, err := uc.hiddify.ListPanelUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list unbound: %w", err)
+	}
+
+	out := make([]PanelUserDTO, 0)
+	for _, pu := range panelUsers {
+		if pu.TelegramID == nil || *pu.TelegramID == 0 {
+			out = append(out, pu)
+		}
+	}
+	return out, nil
 }

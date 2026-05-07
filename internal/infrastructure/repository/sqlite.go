@@ -130,6 +130,19 @@ func (r *UserRepository) Save(ctx context.Context, u *user.User) error {
 	return nil
 }
 
+func (r *UserRepository) SetCanMessage(ctx context.Context, telegramID int64, canMessage bool) error {
+	value := 0
+	if canMessage {
+		value = 1
+	}
+	_, err := r.db.conn.ExecContext(ctx,
+		`UPDATE users SET can_message = ? WHERE telegram_id = ?`, value, telegramID)
+	if err != nil {
+		return fmt.Errorf("user set can_message: %w", err)
+	}
+	return nil
+}
+
 func (r *UserRepository) FindByTelegramID(ctx context.Context, telegramID int64) (*user.User, error) {
 	row := r.db.conn.QueryRowContext(ctx,
 		`SELECT telegram_id, hiddify_uuid, username, can_message, link_source, linked_at, last_seen, created_at
@@ -217,9 +230,9 @@ func (r *TicketRepository) FindByTelegramID(ctx context.Context, telegramID int6
 // It maps a bot message_id (the message with the "Reply" button) to the
 // target user's telegram_id. Persisted so restarts don't lose context.
 type AdminSession struct {
-	MessageID   int
-	TargetTgID  int64
-	ExpiresAt   time.Time
+	MessageID  int
+	TargetTgID int64
+	ExpiresAt  time.Time
 }
 
 // AdminSessionRepository persists reply sessions across bot restarts.

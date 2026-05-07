@@ -13,6 +13,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/ticket"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/repository"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
@@ -78,16 +79,22 @@ func (bot *Bot) Stop() { bot.b.Stop() }
 
 // ── port.Sender implementation ────────────────────────────────────────────────
 
-func (bot *Bot) SendText(_ context.Context, telegramID int64, text string) error {
+func (bot *Bot) SendText(ctx context.Context, telegramID int64, text string) error {
 	_, err := bot.b.Send(chatByID(telegramID), text, tele.ModeMarkdown)
+	if err != nil {
+		bot.markUserUnreachable(ctx, telegramID, err)
+	}
 	return err
 }
 
-func (bot *Bot) SendPhoto(_ context.Context, telegramID int64, fileID, caption string) error {
+func (bot *Bot) SendPhoto(ctx context.Context, telegramID int64, fileID, caption string) error {
 	_, err := bot.b.Send(chatByID(telegramID), &tele.Photo{
 		File:    tele.File{FileID: fileID},
 		Caption: caption,
 	}, tele.ModeMarkdown)
+	if err != nil {
+		bot.markUserUnreachable(ctx, telegramID, err)
+	}
 	return err
 }
 
@@ -130,6 +137,7 @@ func (bot *Bot) setupCommands() {
 		{Text: "users", Description: "Список привязанных пользователей"},
 		{Text: "bind", Description: "Привязать пользователя (tg_id uuid)"},
 		{Text: "history", Description: "История обращений пользователя"},
+		{Text: "cancel", Description: "Отменить активный ответ поддержки"},
 	}
 
 	if err := bot.b.SetCommands(userCommands); err != nil {
@@ -187,6 +195,7 @@ func (bot *Bot) registerHandlers() {
 	admin.Handle("/sync", bot.handleSync)
 	admin.Handle("/users", bot.handleUsers)
 	admin.Handle("/history", bot.handleHistory)
+	admin.Handle("/cancel", bot.handleCancelReply)
 
 	// Inline button callbacks.
 	bot.b.Handle(&replyBtn, bot.handleReplyCallback)
@@ -485,22 +494,6 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 	_ = c.Respond(&tele.CallbackResponse{
 		Text: fmt.Sprintf("Следующее сообщение уйдёт пользователю %d", targetID),
 	})
-	prompt, err := bot.b.Send(
-		chatByID(bot.adminID),
-		fmt.Sprintf("✏️ Напишите ответ пользователю `%d` следующим сообщением.", targetID),
-		tele.ModeMarkdown,
-	)
-	if err != nil {
-		bot.log.Warn("reply prompt send failed", "err", err)
-		return nil
-	}
-	if err := bot.sessionRepo.Save(ctx, repository.AdminSession{
-		MessageID:  int(prompt.ID),
-		TargetTgID: targetID,
-		ExpiresAt:  time.Now().Add(replyTTL),
-	}); err != nil {
-		bot.log.Error("prompt session save failed", "err", err)
-	}
 	return nil
 }
 
@@ -538,6 +531,17 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 		fmt.Sprintf("✅ Ответ отправлен пользователю `%d`.", session.TargetTgID),
 		tele.ModeMarkdown,
 	)
+}
+
+func (bot *Bot) handleCancelReply(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
+
+	if err := bot.sessionRepo.Delete(ctx, activeAdminReplySessionID(bot.adminID)); err != nil {
+		bot.log.Warn("active session delete failed", "err", err)
+		return c.Send("⚠️ Не удалось отменить активный ответ.")
+	}
+	return c.Send("✅ Активный ответ отменён.")
 }
 
 func (bot *Bot) findAdminReplySession(ctx context.Context, c tele.Context) (*repository.AdminSession, int, error) {
@@ -633,10 +637,25 @@ func (bot *Bot) handleSync(c tele.Context) error {
 	), tele.ModeMarkdown)
 }
 
-// handleUsers: /users — list of all linked users with messaging status.
+// handleUsers:
+// /users — all locally linked users
+// /users unbound — Hiddify users without telegram_id
+// /users blocked — locally linked users the bot cannot message
 func (bot *Bot) handleUsers(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
+
+	parts := strings.Fields(c.Text())
+	if len(parts) > 1 {
+		switch parts[1] {
+		case "unbound", "unlinked":
+			return bot.handleUsersUnbound(ctx, c)
+		case "blocked", "inactive":
+			return bot.handleUsersBlocked(ctx, c)
+		default:
+			return c.Send("Использование:\n/users\n/users unbound\n/users blocked")
+		}
+	}
 
 	users, err := bot.userUC.ListLinked(ctx)
 	if err != nil {
@@ -646,28 +665,54 @@ func (bot *Bot) handleUsers(c tele.Context) error {
 		return c.Send("Нет привязанных пользователей.")
 	}
 
+	text := formatLocalUsers("👥 Привязанные пользователи", users)
+	return c.Send(text)
+}
+
+func (bot *Bot) handleUsersBlocked(ctx context.Context, c tele.Context) error {
+	users, err := bot.userUC.ListLinked(ctx)
+	if err != nil {
+		return c.Send("⚠️ Ошибка получения списка: " + err.Error())
+	}
+	blocked := make([]*user.User, 0)
+	for _, u := range users {
+		if !u.CanMessage {
+			blocked = append(blocked, u)
+		}
+	}
+	if len(blocked) == 0 {
+		return c.Send("Нет привязанных пользователей, недоступных для сообщений.")
+	}
+	return c.Send(formatLocalUsers("🚫 Не получают сообщения", blocked))
+}
+
+func (bot *Bot) handleUsersUnbound(ctx context.Context, c tele.Context) error {
+	panelUsers, err := bot.userUC.ListUnboundPanelUsers(ctx)
+	if err != nil {
+		return c.Send("⚠️ Ошибка получения списка из Hiddify: " + err.Error())
+	}
+	if len(panelUsers) == 0 {
+		return c.Send("В Hiddify нет пользователей без telegram_id.")
+	}
+
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "👥 *Привязано: %d*\n\n", len(users))
+	fmt.Fprintf(&sb, "🔎 Hiddify без telegram_id: %d\n\n", len(panelUsers))
 
 	const pageSize = 50
-	for i, u := range users {
+	for i, u := range panelUsers {
 		if i >= pageSize {
-			fmt.Fprintf(&sb, "\n_...и ещё %d. Показаны первые %d._", len(users)-pageSize, pageSize)
+			fmt.Fprintf(&sb, "\n...и ещё %d. Показаны первые %d.", len(panelUsers)-pageSize, pageSize)
 			break
 		}
-		canMsg := "❌"
-		if u.CanMessage {
-			canMsg = "✅"
-		}
-		name := u.Username
+		name := u.Name
 		if name == "" {
 			name = "—"
 		}
-		fmt.Fprintf(&sb, "%d. @%s `%d` %s\n", i+1, name, u.TelegramID, canMsg)
+		fmt.Fprintf(&sb, "%d. %s | uuid: %s\n", i+1, name, shortID(u.UUID))
 	}
-	sb.WriteString("\n✅ — получает рассылки  ❌ — не запускал бота")
+	sb.WriteString("\nДля привязки: /bind <telegram_id> <uuid>")
 
-	return c.Send(sb.String(), tele.ModeMarkdown)
+	return c.Send(sb.String())
 }
 
 // handleHistory: /history <telegram_id> — last N support messages for a user.
@@ -730,6 +775,63 @@ func activeAdminReplySessionID(adminID int64) int {
 		return -int(adminID)
 	}
 	return -1
+}
+
+func (bot *Bot) markUserUnreachable(ctx context.Context, telegramID int64, sendErr error) {
+	if !isUserUnreachableError(sendErr) {
+		return
+	}
+	if err := bot.userUC.MarkCanMessage(ctx, telegramID, false); err != nil {
+		bot.log.Warn("mark user unreachable failed", "telegram_id", telegramID, "err", err)
+		return
+	}
+	bot.log.Info("user marked unreachable", "telegram_id", telegramID, "send_err", sendErr)
+}
+
+func isUserUnreachableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "blocked") ||
+		strings.Contains(msg, "forbidden") ||
+		strings.Contains(msg, "bot was blocked") ||
+		strings.Contains(msg, "chat not found") ||
+		strings.Contains(msg, "user is deactivated")
+}
+
+func formatLocalUsers(title string, users []*user.User) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s: %d\n\n", title, len(users))
+
+	const pageSize = 50
+	for i, u := range users {
+		if i >= pageSize {
+			fmt.Fprintf(&sb, "\n...и ещё %d. Показаны первые %d.", len(users)-pageSize, pageSize)
+			break
+		}
+		canMsg := "нет"
+		if u.CanMessage {
+			canMsg = "да"
+		}
+		name := u.Username
+		if name == "" {
+			name = "—"
+		} else {
+			name = "@" + name
+		}
+		fmt.Fprintf(&sb, "%d. %s | tg: %d | msg: %s | uuid: %s\n",
+			i+1, name, u.TelegramID, canMsg, shortID(u.HiddifyUUID))
+	}
+	sb.WriteString("\nmsg: да — бот может писать; msg: нет — не запускал, заблокировал или доставка падала.")
+	return sb.String()
+}
+
+func shortID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
 }
 
 func formatBytes(b int64) string {

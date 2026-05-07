@@ -22,6 +22,7 @@ func (u *User) IsLinked() bool {
 
 type Repository interface {
 	Save(ctx context.Context, u *User) error
+	SetCanMessage(ctx context.Context, telegramID int64, canMessage bool) error
 	FindByTelegramID(ctx context.Context, telegramID int64) (*User, error)
 	FindByHiddifyUUID(ctx context.Context, uuid string) (*User, error)
 	FindAllLinked(ctx context.Context) ([]*User, error)

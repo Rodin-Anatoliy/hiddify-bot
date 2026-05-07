@@ -29,6 +29,15 @@ func (m *mockUserRepo) Save(_ context.Context, u *user.User) error {
 	return nil
 }
 
+func (m *mockUserRepo) SetCanMessage(_ context.Context, telegramID int64, canMessage bool) error {
+	u, ok := m.data[telegramID]
+	if !ok {
+		return apperr.ErrNotFound
+	}
+	u.CanMessage = canMessage
+	return nil
+}
+
 func (m *mockUserRepo) FindByTelegramID(_ context.Context, id int64) (*user.User, error) {
 	u, ok := m.data[id]
 	if !ok {
@@ -72,6 +81,7 @@ func (m *mockUserRepo) FindAllWithUUID(_ context.Context) ([]*user.User, error) 
 
 type mockHiddify struct {
 	byTelegram map[int64]string
+	unbound    []usecase.PanelUserDTO
 }
 
 func newMockHiddify(pairs map[int64]string) *mockHiddify {
@@ -104,6 +114,7 @@ func (m *mockHiddify) ListPanelUsers(_ context.Context) ([]usecase.PanelUserDTO,
 		id := tgID
 		out = append(out, usecase.PanelUserDTO{UUID: uuid, TelegramID: &id})
 	}
+	out = append(out, m.unbound...)
 	return out, nil
 }
 
@@ -229,5 +240,43 @@ func TestSyncFromHiddify_CreatesNonMessageable(t *testing.T) {
 	}
 	if u.LinkSource != "sync" {
 		t.Errorf("expected link_source=sync, got %s", u.LinkSource)
+	}
+}
+
+func TestListUnboundPanelUsers(t *testing.T) {
+	repo := newMockUserRepo()
+	h := newMockHiddify(map[int64]string{42: "uuid-linked"})
+	h.unbound = []usecase.PanelUserDTO{
+		{UUID: "uuid-no-tg", Name: "No TG"},
+	}
+	uc := usecase.NewUserUseCase(repo, h, logger.New("debug"))
+
+	users, err := uc.ListUnboundPanelUsers(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("expected 1 unbound user, got %d", len(users))
+	}
+	if users[0].UUID != "uuid-no-tg" {
+		t.Errorf("unexpected uuid: %s", users[0].UUID)
+	}
+}
+
+func TestMarkCanMessage(t *testing.T) {
+	repo := newMockUserRepo()
+	_ = repo.Save(context.Background(), &user.User{
+		TelegramID: 42,
+		CanMessage: true,
+		CreatedAt:  time.Now(),
+	})
+	uc := usecase.NewUserUseCase(repo, newMockHiddify(nil), logger.New("debug"))
+
+	if err := uc.MarkCanMessage(context.Background(), 42, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	u, _ := repo.FindByTelegramID(context.Background(), 42)
+	if u.CanMessage {
+		t.Error("expected CanMessage=false")
 	}
 }
