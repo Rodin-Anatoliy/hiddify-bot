@@ -226,9 +226,10 @@ func (bot *Bot) handleStart(c tele.Context) error {
 	return c.Send(
 		"👋 *Привет!*\n\n"+
 			"Я — ваш персональный ассистент для управления VPN-подпиской.\n\n"+
-			"⚠️ Ваш аккаунт пока не привязан. Нажмите кнопку ниже, чтобы связаться с администратором и получить доступ.",
+			"⚠️ Ваш Telegram пока не привязан к аккаунту. Отправьте заявку на подключение, и администратор проверит профиль.",
 		tele.ModeMarkdown,
 		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
+			{{Text: "🔐 Запросить подключение", Data: "cmd:request_access"}},
 			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
 		}},
 	)
@@ -347,8 +348,36 @@ func (bot *Bot) handleCallback(c tele.Context) error {
 		return bot.editStatus(ctx, c)
 	case "cmd:support":
 		return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
+	case "cmd:request_access":
+		return bot.handleAccessRequest(ctx, c)
 	}
 	return nil
+}
+
+func (bot *Bot) handleAccessRequest(ctx context.Context, c tele.Context) error {
+	sender := c.Sender()
+	username := sender.Username
+	if username == "" {
+		username = "без username"
+	} else {
+		username = "@" + username
+	}
+
+	if _, err := bot.b.Send(
+		chatByID(bot.adminID),
+		fmt.Sprintf(
+			"🔐 *Заявка на подключение*\n\nПользователь: %s\nTelegram ID: `%d`\n\nПосле проверки создайте или найдите пользователя в Hiddify и выполните:\n`/bind %d <hiddify_uuid>`",
+			username,
+			sender.ID,
+			sender.ID,
+		),
+		tele.ModeMarkdown,
+	); err != nil {
+		bot.log.Warn("access request: notify admin failed", "err", err)
+		return c.Send("⚠️ Не удалось отправить заявку. Напишите в поддержку следующим сообщением.")
+	}
+
+	return c.Send("✅ Заявка отправлена администратору. После проверки доступ привяжут к этому Telegram.")
 }
 
 // ── Support messaging ─────────────────────────────────────────────────────────
@@ -446,11 +475,22 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 	_ = c.Respond(&tele.CallbackResponse{
 		Text: fmt.Sprintf("Ответьте reply на это сообщение → пользователь %d", targetID),
 	})
-	_, _ = bot.b.Send(
+	prompt, err := bot.b.Send(
 		chatByID(bot.adminID),
 		fmt.Sprintf("✏️ Ответьте *reply* на это сообщение для пользователя `%d`:", targetID),
 		tele.ModeMarkdown,
 	)
+	if err != nil {
+		bot.log.Warn("reply prompt send failed", "err", err)
+		return nil
+	}
+	if err := bot.sessionRepo.Save(ctx, repository.AdminSession{
+		MessageID:  int(prompt.ID),
+		TargetTgID: targetID,
+		ExpiresAt:  time.Now().Add(replyTTL),
+	}); err != nil {
+		bot.log.Error("prompt session save failed", "err", err)
+	}
 	return nil
 }
 
