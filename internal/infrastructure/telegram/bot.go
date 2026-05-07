@@ -435,22 +435,25 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
+	prompt, err := bot.b.Send(
+		chatByID(bot.adminID),
+		fmt.Sprintf("✏️ Ответьте *reply* на это сообщение для пользователя `%d`:", targetID),
+		tele.ModeMarkdown,
+	)
+	if err != nil {
+		bot.log.Error("failed to send reply prompt", "err", err)
+		return c.Respond(&tele.CallbackResponse{Text: "Ошибка отправки промпта"})
+	}
+
 	if err := bot.sessionRepo.Save(ctx, repository.AdminSession{
-		MessageID:  int(c.Message().ID),
+		MessageID:  prompt.ID,
 		TargetTgID: targetID,
 		ExpiresAt:  time.Now().Add(replyTTL),
 	}); err != nil {
 		bot.log.Error("session save failed", "err", err)
 	}
 
-	_ = c.Respond(&tele.CallbackResponse{
-		Text: fmt.Sprintf("Ответьте reply на это сообщение → пользователь %d", targetID),
-	})
-	_, _ = bot.b.Send(
-		chatByID(bot.adminID),
-		fmt.Sprintf("✏️ Ответьте *reply* на это сообщение для пользователя `%d`:", targetID),
-		tele.ModeMarkdown,
-	)
+	_ = c.Respond()
 	return nil
 }
 
