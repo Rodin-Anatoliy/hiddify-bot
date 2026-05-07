@@ -93,16 +93,6 @@ func (bot *Bot) SendPhoto(_ context.Context, telegramID int64, fileID, caption s
 
 // ── Keyboards ─────────────────────────────────────────────────────────────────
 
-// mainMenu returns the inline keyboard shown after /start for linked users.
-func mainMenu() *tele.ReplyMarkup {
-	m := &tele.ReplyMarkup{}
-	m.InlineKeyboard = [][]tele.InlineButton{
-		{{Text: "📊 Статус подписки", Data: "cmd:status"}},
-		{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
-	}
-	return m
-}
-
 // statusMenu returns the "Refresh" button shown under /status.
 func statusMenu() *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
