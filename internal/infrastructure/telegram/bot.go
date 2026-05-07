@@ -70,8 +70,11 @@ func (bot *Bot) InjectUseCases(supportUC *usecase.SupportUseCase, broadcastUC *u
 	bot.broadcastUC = broadcastUC
 }
 
-func (bot *Bot) Start() { bot.b.Start() }
-func (bot *Bot) Stop()  { bot.b.Stop() }
+func (bot *Bot) Start() {
+	bot.setupCommands()
+	bot.b.Start()
+}
+func (bot *Bot) Stop() { bot.b.Stop() }
 
 // ── port.Sender implementation ────────────────────────────────────────────────
 
@@ -120,6 +123,35 @@ func replyMarkup(targetTgID int64) *tele.ReplyMarkup {
 		}},
 	}
 	return m
+}
+
+func (bot *Bot) setupCommands() {
+	userCommands := []tele.Command{
+		{Text: "status", Description: "Статус подписки"},
+	}
+
+	adminCommands := []tele.Command{
+		{Text: "status", Description: "Статус подписки"},
+		{Text: "broadcast", Description: "Рассылка всем пользователям"},
+		{Text: "sync", Description: "Синхронизация с панелью Hiddify"},
+		{Text: "users", Description: "Список привязанных пользователей"},
+		{Text: "bind", Description: "Привязать пользователя (tg_id uuid)"},
+		{Text: "history", Description: "История обращений пользователя"},
+	}
+
+	if err := bot.b.SetCommands(userCommands); err != nil {
+		bot.log.Warn("setCommands (users) failed", "err", err)
+	}
+
+	adminScope := tele.CommandScope{
+		Type:   tele.CommandScopeChat,
+		ChatID: bot.adminID,
+	}
+	if err := bot.b.SetCommands(adminCommands, adminScope); err != nil {
+		bot.log.Warn("setCommands (admin) failed", "err", err)
+	}
+
+	bot.log.Info("bot commands registered")
 }
 
 // ── Handler registration ──────────────────────────────────────────────────────
@@ -193,15 +225,15 @@ func (bot *Bot) handleStart(c tele.Context) error {
 		return c.Send("⚠️ Произошла ошибка. Попробуйте позже.")
 	}
 
+	// Linked user — show status immediately, no intermediate screen.
 	if u.IsLinked() {
-		return c.Send(
-			"✅ Аккаунт привязан. Выберите действие:",
-			mainMenu(),
-		)
+		return bot.sendStatus(ctx, c)
 	}
+
+	// Not linked yet — brief message with support button only.
 	return c.Send(
-		"👋 Ваш Telegram пока не привязан к аккаунту VPN.\n\n" +
-			"Напишите в поддержку — администратор поможет.",
+		"👋 Ваш Telegram не привязан к аккаунту VPN.\n\n"+
+			"Напишите администратору — он привяжет ваш аккаунт.",
 		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
 			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
 		}},
@@ -302,7 +334,6 @@ func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 	}
 	return nil
 }
-
 
 func (bot *Bot) handleSupportPrompt(c tele.Context) error {
 	return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
