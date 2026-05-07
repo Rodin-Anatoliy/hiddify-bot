@@ -39,8 +39,6 @@ func NewClient(baseURL, adminProxy, userProxy, apiKey string, log *slog.Logger) 
 	}
 }
 
-// ── API response types (private — never leave this package) ──────────────────
-
 type apiUser struct {
 	UUID            string  `json:"uuid"`
 	Name            string  `json:"name"`
@@ -52,8 +50,6 @@ type apiUser struct {
 	StartDate       string  `json:"start_date"` // "2006-01-02"
 	SubscriptionURL string  `json:"subscription_url"`
 }
-
-// ── Public API ────────────────────────────────────────────────────────────────
 
 // GetUserByUUID fetches a single Hiddify user and maps it to a subscription status.
 func (c *Client) GetUserByUUID(ctx context.Context, uuid string) (*subscription.Status, error) {
@@ -79,15 +75,11 @@ func (c *Client) GetUserByTelegramID(ctx context.Context, telegramID int64) (*su
 	return nil, "", apperr.ErrNotFound
 }
 
-
-
 // SetTelegramID links a Telegram chat ID to an existing Hiddify user.
 func (c *Client) SetTelegramID(ctx context.Context, uuid string, telegramID int64) error {
 	path := fmt.Sprintf("/%s/api/v2/admin/user/%s/", c.adminProxy, uuid)
 	return c.patch(ctx, path, map[string]any{"telegram_id": telegramID})
 }
-
-// ── Internal helpers ──────────────────────────────────────────────────────────
 
 func (c *Client) listRaw(ctx context.Context) ([]apiUser, error) {
 	path := fmt.Sprintf("/%s/api/v2/admin/user/", c.adminProxy)

@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/logger"
 )
 
-// Compile-time check: mockSender implements port.Sender.
-var _ port.Sender = (*mockSender)(nil)
+var _ usecase.Sender = (*mockSender)(nil)
 
 type mockSender struct {
 	texts  chan struct{}

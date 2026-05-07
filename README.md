@@ -13,11 +13,10 @@ Built as a Go portfolio project — Clean Architecture, testable, production-rea
 | `/bind <tg_id> <uuid>` | Admin | Manually link a Telegram user to a Hiddify account |
 | `/sync` | Admin | Pull all panel users with `telegram_id` into local DB |
 | `/broadcast <text>` | Admin | Send text or photo to all active users |
-| `/users` | Admin | List all linked users with messaging status |
+| `/users` | Admin | List Hiddify users with Telegram/bot status |
 | `/users unbound` | Admin | List Hiddify users without `telegram_id` |
 | `/users blocked` | Admin | List linked users the bot cannot message |
 | `/history <tg_id>` | Admin | View support message history for a user |
-| `/cancel` | Admin | Cancel the active support reply target |
 
 ## Deployment
 
@@ -65,15 +64,14 @@ make dev               # go run, hot on save
 internal/
   config/         — env loading, validation, defaults
   domain/         — pure entities, no external dependencies
-  port/           — outbound interface contracts (Sender)
-  usecase/        — business logic, depends only on domain + port
+  usecase/        — business logic and interfaces consumed by use cases
   infrastructure/ — implementations: Telegram, Hiddify API, SQLite
 pkg/
   apperr/         — sentinel errors
   logger/         — structured JSON logging (slog)
 ```
 
-Dependency rule: `domain ← port ← usecase ← infrastructure ← cmd`
+Dependency rule: `domain ← usecase ← infrastructure ← cmd`
 
 ## License
 

@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
-
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 )
 
 const (
@@ -37,11 +35,11 @@ type BroadcastResult struct {
 // BroadcastUseCase sends a message to all users who have enabled messaging (/start).
 type BroadcastUseCase struct {
 	users  user.Repository
-	sender port.Sender
+	sender Sender
 	log    *slog.Logger
 }
 
-func NewBroadcastUseCase(users user.Repository, sender port.Sender, log *slog.Logger) *BroadcastUseCase {
+func NewBroadcastUseCase(users user.Repository, sender Sender, log *slog.Logger) *BroadcastUseCase {
 	return &BroadcastUseCase{
 		users:  users,
 		sender: sender,

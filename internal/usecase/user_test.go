@@ -13,8 +13,6 @@ import (
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/logger"
 )
 
-// ── Mocks ─────────────────────────────────────────────────────────────────────
-
 type mockUserRepo struct {
 	data map[int64]*user.User
 }
@@ -119,8 +117,6 @@ func (m *mockHiddify) ListPanelUsers(_ context.Context) ([]usecase.PanelUserDTO,
 }
 
 func (m *mockHiddify) SetTelegramID(_ context.Context, _ string, _ int64) error { return nil }
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 func TestRegisterOrGet_NewUser_AutoLinked(t *testing.T) {
 	repo := newMockUserRepo()

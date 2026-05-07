@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/ticket"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/port"
 )
 
 // IncomingMessage carries everything needed to handle a user → admin message.
@@ -21,11 +20,11 @@ type IncomingMessage struct {
 // SupportUseCase manages bidirectional messaging between users and the admin.
 type SupportUseCase struct {
 	tickets ticket.Repository
-	sender  port.Sender
+	sender  Sender
 	log     *slog.Logger
 }
 
-func NewSupportUseCase(tickets ticket.Repository, sender port.Sender, log *slog.Logger) *SupportUseCase {
+func NewSupportUseCase(tickets ticket.Repository, sender Sender, log *slog.Logger) *SupportUseCase {
 	return &SupportUseCase{
 		tickets: tickets,
 		sender:  sender,
@@ -47,7 +46,7 @@ func (uc *SupportUseCase) HandleUserMessage(ctx context.Context, msg IncomingMes
 		return nil, fmt.Errorf("support: save: %w", err)
 	}
 
-	// Admin notification with reply button is handled by the transport layer (bot.go).
+	// Telegram-specific admin notification is handled by the transport layer.
 	return m, nil
 }
 
@@ -77,7 +76,6 @@ func (uc *SupportUseCase) forward(ctx context.Context, telegramID int64, fileID,
 	}
 	return uc.sender.SendText(ctx, telegramID, text)
 }
-
 
 // GetHistory returns the last support messages for a given user.
 func (uc *SupportUseCase) GetHistory(ctx context.Context, telegramID int64) ([]*ticket.Message, error) {

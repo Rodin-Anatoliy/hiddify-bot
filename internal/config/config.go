@@ -94,8 +94,6 @@ func (cfg *Config) validate() error {
 	return nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 func getenv(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
