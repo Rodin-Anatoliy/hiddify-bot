@@ -263,6 +263,34 @@ func TestListUnboundPanelUsers(t *testing.T) {
 	}
 }
 
+func TestListPanelUserViews_EnrichesWithLocalBotState(t *testing.T) {
+	repo := newMockUserRepo()
+	tgID := int64(42)
+	_ = repo.Save(context.Background(), &user.User{
+		TelegramID:  tgID,
+		HiddifyUUID: "uuid-linked",
+		CanMessage:  true,
+		CreatedAt:   time.Now(),
+	})
+	h := newMockHiddify(map[int64]string{tgID: "uuid-linked"})
+	h.unbound = []usecase.PanelUserDTO{{UUID: "uuid-no-tg", Name: "No TG"}}
+	uc := usecase.NewUserUseCase(repo, h, logger.New("debug"))
+
+	users, err := uc.ListPanelUserViews(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 panel users, got %d", len(users))
+	}
+	if !users[0].KnownToBot || !users[0].CanMessage {
+		t.Fatalf("expected linked user enriched with bot state: %+v", users[0])
+	}
+	if users[1].TelegramID != nil {
+		t.Fatalf("expected second user to be unbound: %+v", users[1])
+	}
+}
+
 func TestMarkCanMessage(t *testing.T) {
 	repo := newMockUserRepo()
 	_ = repo.Save(context.Background(), &user.User{

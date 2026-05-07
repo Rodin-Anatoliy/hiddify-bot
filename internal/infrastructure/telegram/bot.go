@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
@@ -36,6 +37,9 @@ type Bot struct {
 	supportUC   *usecase.SupportUseCase
 	broadcastUC *usecase.BroadcastUseCase
 	sessionRepo *repository.AdminSessionRepository
+
+	mu                   sync.Mutex
+	activeReplyMessageID int
 }
 
 // New constructs and configures the bot.
@@ -125,6 +129,29 @@ func replyMarkup(targetTgID int64) *tele.ReplyMarkup {
 	return m
 }
 
+func activeReplyMarkup(targetTgID int64) *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.InlineKeyboard = [][]tele.InlineButton{
+		{
+			{Text: fmt.Sprintf("✍️ Ответ → %d", targetTgID), Data: "cmd:noop"},
+			{Text: "Отменить", Data: "cmd:cancel_reply"},
+		},
+	}
+	return m
+}
+
+func usersMenu() *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.InlineKeyboard = [][]tele.InlineButton{
+		{
+			{Text: "Все", Data: "cmd:users:all"},
+			{Text: "Без TG", Data: "cmd:users:unbound"},
+			{Text: "Не пишет", Data: "cmd:users:blocked"},
+		},
+	}
+	return m
+}
+
 func (bot *Bot) setupCommands() {
 	userCommands := []tele.Command{
 		{Text: "status", Description: "Статус подписки"},
@@ -134,10 +161,9 @@ func (bot *Bot) setupCommands() {
 		{Text: "status", Description: "Статус подписки"},
 		{Text: "broadcast", Description: "Рассылка всем пользователям"},
 		{Text: "sync", Description: "Синхронизация с панелью Hiddify"},
-		{Text: "users", Description: "Список привязанных пользователей"},
+		{Text: "users", Description: "Пользователи Hiddify и Telegram-статус"},
 		{Text: "bind", Description: "Привязать пользователя (tg_id uuid)"},
 		{Text: "history", Description: "История обращений пользователя"},
-		{Text: "cancel", Description: "Отменить активный ответ поддержки"},
 	}
 
 	if err := bot.b.SetCommands(userCommands); err != nil {
@@ -362,6 +388,16 @@ func (bot *Bot) handleCallback(c tele.Context) error {
 		return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
 	case "cmd:request_access":
 		return bot.handleAccessRequest(ctx, c)
+	case "cmd:cancel_reply":
+		return bot.cancelAdminReply(ctx, c)
+	case "cmd:users:all":
+		return bot.showUsers(ctx, c, "all", true)
+	case "cmd:users:unbound":
+		return bot.showUsers(ctx, c, "unbound", true)
+	case "cmd:users:blocked":
+		return bot.showUsers(ctx, c, "blocked", true)
+	case "cmd:noop":
+		return nil
 	}
 	return nil
 }
@@ -490,10 +526,14 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 	}); err != nil {
 		bot.log.Error("active session save failed", "err", err)
 	}
+	bot.setActiveReplyMessageID(c.Message().ID)
 
 	_ = c.Respond(&tele.CallbackResponse{
 		Text: fmt.Sprintf("Следующее сообщение уйдёт пользователю %d", targetID),
 	})
+	if _, err := bot.b.EditReplyMarkup(c.Message(), activeReplyMarkup(targetID)); err != nil {
+		bot.log.Warn("active reply markup failed", "err", err)
+	}
 	return nil
 }
 
@@ -527,6 +567,9 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 		bot.log.Error("support: admin reply failed", "err", err)
 		return c.Send("⚠️ Не удалось отправить ответ.")
 	}
+	if sessionKey == activeAdminReplySessionID(bot.adminID) {
+		bot.restoreActiveReplyMarkup(session.TargetTgID)
+	}
 	return c.Send(
 		fmt.Sprintf("✅ Ответ отправлен пользователю `%d`.", session.TargetTgID),
 		tele.ModeMarkdown,
@@ -541,7 +584,26 @@ func (bot *Bot) handleCancelReply(c tele.Context) error {
 		bot.log.Warn("active session delete failed", "err", err)
 		return c.Send("⚠️ Не удалось отменить активный ответ.")
 	}
+	bot.clearActiveReplyMessageID()
 	return c.Send("✅ Активный ответ отменён.")
+}
+
+func (bot *Bot) cancelAdminReply(ctx context.Context, c tele.Context) error {
+	session, err := bot.sessionRepo.Get(ctx, c.Message().ID)
+	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+		bot.log.Warn("reply session get failed", "err", err)
+	}
+	if err := bot.sessionRepo.Delete(ctx, activeAdminReplySessionID(bot.adminID)); err != nil {
+		bot.log.Warn("active session delete failed", "err", err)
+		return c.Respond(&tele.CallbackResponse{Text: "Не удалось отменить"})
+	}
+	bot.clearActiveReplyMessageID()
+	if session != nil {
+		if _, err := bot.b.EditReplyMarkup(c.Message(), replyMarkup(session.TargetTgID)); err != nil {
+			bot.log.Warn("reply markup restore failed", "err", err)
+		}
+	}
+	return c.Respond(&tele.CallbackResponse{Text: "Ответ отменён"})
 }
 
 func (bot *Bot) findAdminReplySession(ctx context.Context, c tele.Context) (*repository.AdminSession, int, error) {
@@ -638,7 +700,7 @@ func (bot *Bot) handleSync(c tele.Context) error {
 }
 
 // handleUsers:
-// /users — all locally linked users
+// /users — all Hiddify users enriched with local bot state
 // /users unbound — Hiddify users without telegram_id
 // /users blocked — locally linked users the bot cannot message
 func (bot *Bot) handleUsers(c tele.Context) error {
@@ -649,30 +711,60 @@ func (bot *Bot) handleUsers(c tele.Context) error {
 	if len(parts) > 1 {
 		switch parts[1] {
 		case "unbound", "unlinked":
-			return bot.handleUsersUnbound(ctx, c)
+			return bot.showUsers(ctx, c, "unbound", false)
 		case "blocked", "inactive":
-			return bot.handleUsersBlocked(ctx, c)
+			return bot.showUsers(ctx, c, "blocked", false)
 		default:
 			return c.Send("Использование:\n/users\n/users unbound\n/users blocked")
 		}
 	}
 
-	users, err := bot.userUC.ListLinked(ctx)
-	if err != nil {
-		return c.Send("⚠️ Ошибка получения списка: " + err.Error())
-	}
-	if len(users) == 0 {
-		return c.Send("Нет привязанных пользователей.")
-	}
-
-	text := formatLocalUsers("👥 Привязанные пользователи", users)
-	return c.Send(text)
+	return bot.showUsers(ctx, c, "all", false)
 }
 
-func (bot *Bot) handleUsersBlocked(ctx context.Context, c tele.Context) error {
+func (bot *Bot) showUsers(ctx context.Context, c tele.Context, mode string, edit bool) error {
+	var text string
+	var err error
+
+	switch mode {
+	case "all":
+		text, err = bot.usersAllText(ctx)
+	case "unbound":
+		text, err = bot.usersUnboundText(ctx)
+	case "blocked":
+		text, err = bot.usersBlockedText(ctx)
+	default:
+		text = "Использование:\n/users\n/users unbound\n/users blocked"
+	}
+	if err != nil {
+		text = "⚠️ Ошибка получения списка: " + err.Error()
+	}
+
+	if edit {
+		if _, editErr := bot.b.Edit(c.Message(), text, usersMenu()); editErr == nil {
+			return nil
+		}
+	}
+	return c.Send(text, usersMenu())
+}
+
+func (bot *Bot) usersAllText(ctx context.Context) (string, error) {
+	users, err := bot.userUC.ListPanelUserViews(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(users) == 0 {
+		return "В Hiddify нет пользователей.", nil
+	}
+
+	text := formatPanelUsers("👥 Пользователи Hiddify", users)
+	return text, nil
+}
+
+func (bot *Bot) usersBlockedText(ctx context.Context) (string, error) {
 	users, err := bot.userUC.ListLinked(ctx)
 	if err != nil {
-		return c.Send("⚠️ Ошибка получения списка: " + err.Error())
+		return "", err
 	}
 	blocked := make([]*user.User, 0)
 	for _, u := range users {
@@ -681,18 +773,18 @@ func (bot *Bot) handleUsersBlocked(ctx context.Context, c tele.Context) error {
 		}
 	}
 	if len(blocked) == 0 {
-		return c.Send("Нет привязанных пользователей, недоступных для сообщений.")
+		return "Нет привязанных пользователей, недоступных для сообщений.", nil
 	}
-	return c.Send(formatLocalUsers("🚫 Не получают сообщения", blocked))
+	return formatLocalUsers("🚫 Не получают сообщения", blocked), nil
 }
 
-func (bot *Bot) handleUsersUnbound(ctx context.Context, c tele.Context) error {
+func (bot *Bot) usersUnboundText(ctx context.Context) (string, error) {
 	panelUsers, err := bot.userUC.ListUnboundPanelUsers(ctx)
 	if err != nil {
-		return c.Send("⚠️ Ошибка получения списка из Hiddify: " + err.Error())
+		return "", err
 	}
 	if len(panelUsers) == 0 {
-		return c.Send("В Hiddify нет пользователей без telegram_id.")
+		return "В Hiddify нет пользователей без telegram_id.", nil
 	}
 
 	var sb strings.Builder
@@ -712,7 +804,7 @@ func (bot *Bot) handleUsersUnbound(ctx context.Context, c tele.Context) error {
 	}
 	sb.WriteString("\nДля привязки: /bind <telegram_id> <uuid>")
 
-	return c.Send(sb.String())
+	return sb.String(), nil
 }
 
 // handleHistory: /history <telegram_id> — last N support messages for a user.
@@ -777,6 +869,36 @@ func activeAdminReplySessionID(adminID int64) int {
 	return -1
 }
 
+func (bot *Bot) setActiveReplyMessageID(messageID int) {
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	bot.activeReplyMessageID = messageID
+}
+
+func (bot *Bot) clearActiveReplyMessageID() {
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	bot.activeReplyMessageID = 0
+}
+
+func (bot *Bot) restoreActiveReplyMarkup(targetTgID int64) {
+	bot.mu.Lock()
+	messageID := bot.activeReplyMessageID
+	bot.activeReplyMessageID = 0
+	bot.mu.Unlock()
+
+	if messageID == 0 {
+		return
+	}
+	msg := &tele.Message{
+		ID:   messageID,
+		Chat: chatByID(bot.adminID),
+	}
+	if _, err := bot.b.EditReplyMarkup(msg, replyMarkup(targetTgID)); err != nil {
+		bot.log.Warn("reply markup restore failed", "err", err)
+	}
+}
+
 func (bot *Bot) markUserUnreachable(ctx context.Context, telegramID int64, sendErr error) {
 	if !isUserUnreachableError(sendErr) {
 		return
@@ -824,6 +946,40 @@ func formatLocalUsers(title string, users []*user.User) string {
 			i+1, name, u.TelegramID, canMsg, shortID(u.HiddifyUUID))
 	}
 	sb.WriteString("\nmsg: да — бот может писать; msg: нет — не запускал, заблокировал или доставка падала.")
+	return sb.String()
+}
+
+func formatPanelUsers(title string, users []usecase.PanelUserView) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s: %d\n\n", title, len(users))
+
+	const pageSize = 50
+	for i, u := range users {
+		if i >= pageSize {
+			fmt.Fprintf(&sb, "\n...и ещё %d. Показаны первые %d.", len(users)-pageSize, pageSize)
+			break
+		}
+		name := u.Name
+		if name == "" {
+			name = "—"
+		}
+		tg := "нет"
+		botState := "нет tg"
+		if u.TelegramID != nil && *u.TelegramID != 0 {
+			tg = strconv.FormatInt(*u.TelegramID, 10)
+			switch {
+			case u.CanMessage:
+				botState = "пишет"
+			case u.KnownToBot:
+				botState = "не пишет"
+			default:
+				botState = "не запускал"
+			}
+		}
+		fmt.Fprintf(&sb, "%d. %s | tg: %s | bot: %s | uuid: %s\n",
+			i+1, name, tg, botState, shortID(u.UUID))
+	}
+	sb.WriteString("\nbot: пишет — бот может отправлять; не пишет — заблокирован/доставка падала; не запускал — tg есть в панели, но /start не было.")
 	return sb.String()
 }
 

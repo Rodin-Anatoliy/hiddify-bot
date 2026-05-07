@@ -30,6 +30,15 @@ type PanelUserDTO struct {
 	TelegramID *int64
 }
 
+// PanelUserView is an admin-facing view of a Hiddify user enriched with local bot state.
+type PanelUserView struct {
+	UUID       string
+	Name       string
+	TelegramID *int64
+	KnownToBot bool
+	CanMessage bool
+}
+
 // SyncResult holds statistics from a Hiddify→local sync operation.
 type SyncResult struct {
 	Total   int
@@ -245,6 +254,37 @@ func (uc *UserUseCase) upsertFromPanel(ctx context.Context, pu PanelUserDTO, now
 // Includes users who haven't pressed /start yet (CanMessage=false).
 func (uc *UserUseCase) ListLinked(ctx context.Context) ([]*user.User, error) {
 	return uc.users.FindAllWithUUID(ctx)
+}
+
+// ListPanelUserViews returns all Hiddify users enriched with local Telegram bot state.
+func (uc *UserUseCase) ListPanelUserViews(ctx context.Context) ([]PanelUserView, error) {
+	panelUsers, err := uc.hiddify.ListPanelUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list panel users: %w", err)
+	}
+
+	out := make([]PanelUserView, 0, len(panelUsers))
+	for _, pu := range panelUsers {
+		view := PanelUserView{
+			UUID:       pu.UUID,
+			Name:       pu.Name,
+			TelegramID: pu.TelegramID,
+		}
+		if pu.TelegramID != nil && *pu.TelegramID != 0 {
+			u, findErr := uc.users.FindByTelegramID(ctx, *pu.TelegramID)
+			switch {
+			case findErr == nil:
+				view.KnownToBot = true
+				view.CanMessage = u.CanMessage
+			case errors.Is(findErr, apperr.ErrNotFound):
+				// User exists in Hiddify with telegram_id, but has not touched the bot yet.
+			default:
+				return nil, fmt.Errorf("list panel users: local lookup: %w", findErr)
+			}
+		}
+		out = append(out, view)
+	}
+	return out, nil
 }
 
 // ListUnboundPanelUsers returns Hiddify users without telegram_id.
