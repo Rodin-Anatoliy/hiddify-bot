@@ -546,7 +546,7 @@ func (bot *Bot) findAdminReplySession(ctx context.Context, c tele.Context) (*rep
 		if err == nil {
 			return session, replyTo.ID, nil
 		}
-		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+		if !errors.Is(err, apperr.ErrNotFound) {
 			return nil, 0, err
 		}
 	}
