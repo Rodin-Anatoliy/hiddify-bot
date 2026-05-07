@@ -1,7 +1,6 @@
 # hiddify-bot
 
 Telegram bot for managing [Hiddify Manager](https://github.com/hiddify/HiddifyManager) users.  
-Built as a Go portfolio project — Clean Architecture, testable, production-ready.
 
 ## Features
 
@@ -22,6 +21,7 @@ Built as a Go portfolio project — Clean Architecture, testable, production-rea
 
 Runs as a **systemd service** on the same server as Hiddify — no Docker needed.  
 GitHub Actions builds a static binary and deploys it automatically on every push to `main`.
+Optimized for minimal setup VPS.
 
 ### First-time server setup
 
@@ -72,6 +72,11 @@ pkg/
 ```
 
 Dependency rule: `domain ← usecase ← infrastructure ← cmd`
+
+## TODO
+- /bind UI - create a message with input fields in order (tg id, uuid), the window changes and does not produce unnecessary ones
+- first start - for new users, add the ability to request a connection (or link) with admin approval. Then, notify the user that the connection has been approved. Create a new user in the panel via the API and return to the user. Create an unlimited user (GB limit - 100000, Package days - 10000, Name - randomly chosen).
+- users with several links - study the panel's configuration. Ideally, all links should be subscribed to the same TG, which will limit spam (so that only one message is received), but the goal is for the user to see information on all subscriptions in one account and receive all links.
 
 ## License
 
