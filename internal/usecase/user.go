@@ -39,6 +39,12 @@ type SyncResult struct {
 	Skipped int
 }
 
+// RegistrationResult tells the transport how to greet the user after /start.
+type RegistrationResult struct {
+	User      *user.User
+	FirstSeen bool
+}
+
 // UserUseCase orchestrates user registration, linking, and subscription retrieval.
 type UserUseCase struct {
 	users   user.Repository
@@ -57,7 +63,18 @@ func NewUserUseCase(users user.Repository, hiddify HiddifyClient, log *slog.Logg
 // RegisterOrGet ensures a local record exists for this Telegram user, updates LastSeen,
 // and attempts auto-linking with Hiddify on every call (in case panel was updated).
 func (uc *UserUseCase) RegisterOrGet(ctx context.Context, telegramID int64, username string) (*user.User, error) {
+	result, err := uc.RegisterOrGetWithState(ctx, telegramID, username)
+	if err != nil {
+		return nil, err
+	}
+	return result.User, nil
+}
+
+// RegisterOrGetWithState is RegisterOrGet plus information about whether this
+// is the first time the bot sees this Telegram user.
+func (uc *UserUseCase) RegisterOrGetWithState(ctx context.Context, telegramID int64, username string) (*RegistrationResult, error) {
 	now := time.Now()
+	firstSeen := false
 
 	u, err := uc.users.FindByTelegramID(ctx, telegramID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
@@ -65,6 +82,7 @@ func (uc *UserUseCase) RegisterOrGet(ctx context.Context, telegramID int64, user
 	}
 
 	if errors.Is(err, apperr.ErrNotFound) {
+		firstSeen = true
 		u = &user.User{
 			TelegramID: telegramID,
 			CreatedAt:  now,
@@ -82,7 +100,7 @@ func (uc *UserUseCase) RegisterOrGet(ctx context.Context, telegramID int64, user
 	if saveErr := uc.users.Save(ctx, u); saveErr != nil {
 		return nil, fmt.Errorf("register: save: %w", saveErr)
 	}
-	return u, nil
+	return &RegistrationResult{User: u, FirstSeen: firstSeen}, nil
 }
 
 // tryAutoLink attempts to find a matching Hiddify user by telegram_id and link them.

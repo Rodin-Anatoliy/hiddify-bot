@@ -212,14 +212,17 @@ func (bot *Bot) handleStart(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
-	u, err := bot.userUC.RegisterOrGet(ctx, c.Sender().ID, c.Sender().Username)
+	result, err := bot.userUC.RegisterOrGetWithState(ctx, c.Sender().ID, c.Sender().Username)
 	if err != nil {
 		bot.log.Error("start: register failed", "err", err)
 		return c.Send("⚠️ Произошла ошибка. Попробуйте позже.")
 	}
+	u := result.User
 
 	if u.IsLinked() {
-		_ = c.Send("👋 С возвращением! Текущее состояние вашего подключения:")
+		if result.FirstSeen {
+			_ = c.Send("👋 Добро пожаловать! Ваш аккаунт уже привязан, показываю подключение:")
+		}
 		return bot.sendStatus(ctx, c)
 	}
 
@@ -471,13 +474,20 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 	}); err != nil {
 		bot.log.Error("session save failed", "err", err)
 	}
+	if err := bot.sessionRepo.Save(ctx, repository.AdminSession{
+		MessageID:  activeAdminReplySessionID(bot.adminID),
+		TargetTgID: targetID,
+		ExpiresAt:  time.Now().Add(replyTTL),
+	}); err != nil {
+		bot.log.Error("active session save failed", "err", err)
+	}
 
 	_ = c.Respond(&tele.CallbackResponse{
-		Text: fmt.Sprintf("Ответьте reply на это сообщение → пользователь %d", targetID),
+		Text: fmt.Sprintf("Следующее сообщение уйдёт пользователю %d", targetID),
 	})
 	prompt, err := bot.b.Send(
 		chatByID(bot.adminID),
-		fmt.Sprintf("✏️ Ответьте *reply* на это сообщение для пользователя `%d`:", targetID),
+		fmt.Sprintf("✏️ Напишите ответ пользователю `%d` следующим сообщением.", targetID),
 		tele.ModeMarkdown,
 	)
 	if err != nil {
@@ -495,15 +505,14 @@ func (bot *Bot) handleReplyCallback(c tele.Context) error {
 }
 
 func (bot *Bot) handleAdminReply(c tele.Context) error {
-	replyTo := c.Message().ReplyTo
-	if replyTo == nil {
+	if strings.HasPrefix(c.Text(), "/") {
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
-	session, err := bot.sessionRepo.Get(ctx, replyTo.ID)
+	session, sessionKey, err := bot.findAdminReplySession(ctx, c)
 	if errors.Is(err, apperr.ErrNotFound) {
 		return nil
 	}
@@ -512,8 +521,13 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 		return nil
 	}
 
-	if err := bot.sessionRepo.Delete(ctx, replyTo.ID); err != nil {
+	if err := bot.sessionRepo.Delete(ctx, sessionKey); err != nil {
 		bot.log.Warn("session delete failed", "err", err)
+	}
+	if sessionKey != activeAdminReplySessionID(bot.adminID) {
+		if err := bot.sessionRepo.Delete(ctx, activeAdminReplySessionID(bot.adminID)); err != nil {
+			bot.log.Warn("active session delete failed", "err", err)
+		}
 	}
 
 	if _, err := bot.supportUC.HandleAdminReply(ctx, session.TargetTgID, c.Text(), ""); err != nil {
@@ -524,6 +538,25 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 		fmt.Sprintf("✅ Ответ отправлен пользователю `%d`.", session.TargetTgID),
 		tele.ModeMarkdown,
 	)
+}
+
+func (bot *Bot) findAdminReplySession(ctx context.Context, c tele.Context) (*repository.AdminSession, int, error) {
+	if replyTo := c.Message().ReplyTo; replyTo != nil {
+		session, err := bot.sessionRepo.Get(ctx, replyTo.ID)
+		if err == nil {
+			return session, replyTo.ID, nil
+		}
+		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+			return nil, 0, err
+		}
+	}
+
+	key := activeAdminReplySessionID(bot.adminID)
+	session, err := bot.sessionRepo.Get(ctx, key)
+	if err != nil {
+		return nil, 0, err
+	}
+	return session, key, nil
 }
 
 // ── Admin commands ────────────────────────────────────────────────────────────
@@ -691,6 +724,13 @@ func (bot *Bot) handleHistory(c tele.Context) error {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func chatByID(id int64) *tele.Chat { return &tele.Chat{ID: id} }
+
+func activeAdminReplySessionID(adminID int64) int {
+	if adminID > 0 {
+		return -int(adminID)
+	}
+	return -1
+}
 
 func formatBytes(b int64) string {
 	if b < 0 {
