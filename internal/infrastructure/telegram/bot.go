@@ -93,11 +93,14 @@ func (bot *Bot) SendPhoto(_ context.Context, telegramID int64, fileID, caption s
 
 // ── Keyboards ─────────────────────────────────────────────────────────────────
 
-// statusMenu returns the "Refresh" button shown under /status.
+// statusMenu returns the "Refresh" button shown under /status and support.
 func statusMenu() *tele.ReplyMarkup {
 	m := &tele.ReplyMarkup{}
 	m.InlineKeyboard = [][]tele.InlineButton{
-		{{Text: "🔄 Обновить", Data: "cmd:status"}},
+		{
+			{Text: "🔄 Обновить", Data: "cmd:status"},
+			{Text: "📨 Поддержка", Data: "cmd:support"},
+		},
 	}
 	return m
 }
@@ -215,15 +218,16 @@ func (bot *Bot) handleStart(c tele.Context) error {
 		return c.Send("⚠️ Произошла ошибка. Попробуйте позже.")
 	}
 
-	// Linked user — show status immediately, no intermediate screen.
 	if u.IsLinked() {
+		_ = c.Send("👋 С возвращением! Текущее состояние вашего подключения:")
 		return bot.sendStatus(ctx, c)
 	}
 
-	// Not linked yet — brief message with support button only.
 	return c.Send(
-		"👋 Ваш Telegram не привязан к аккаунту VPN.\n\n"+
-			"Напишите администратору — он привяжет ваш аккаунт.",
+		"👋 *Привет!*\n\n"+
+			"Я — ваш персональный ассистент для управления VPN-подпиской.\n\n"+
+			"⚠️ Ваш аккаунт пока не привязан. Нажмите кнопку ниже, чтобы связаться с администратором и получить доступ.",
+		tele.ModeMarkdown,
 		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
 			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
 		}},
