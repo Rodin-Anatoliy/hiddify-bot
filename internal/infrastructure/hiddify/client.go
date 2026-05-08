@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/subscription"
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
 const defaultTimeout = 15 * time.Second
@@ -72,7 +72,7 @@ func (c *Client) GetUserByTelegramID(ctx context.Context, telegramID int64) (*su
 			return toStatus(u, c.baseURL, c.userProxy, u.UUID), u.UUID, nil
 		}
 	}
-	return nil, "", apperr.ErrNotFound
+	return nil, "", errs.ErrNotFound
 }
 
 // SetTelegramID links a Telegram chat ID to an existing Hiddify user.
@@ -99,7 +99,7 @@ func (c *Client) get(ctx context.Context, path string, dest any) error {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
+		return fmt.Errorf("%w: %s", errs.ErrHiddifyAPI, err)
 	}
 	defer resp.Body.Close()
 	return c.decode(resp, dest)
@@ -119,26 +119,26 @@ func (c *Client) patch(ctx context.Context, path string, payload any) error {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %s", apperr.ErrHiddifyAPI, err)
+		return fmt.Errorf("%w: %s", errs.ErrHiddifyAPI, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		c.log.Error("hiddify patch error", "status", resp.StatusCode, "body", string(body))
-		return fmt.Errorf("%w: status %d", apperr.ErrHiddifyAPI, resp.StatusCode)
+		return fmt.Errorf("%w: status %d", errs.ErrHiddifyAPI, resp.StatusCode)
 	}
 	return nil
 }
 
 func (c *Client) decode(resp *http.Response, dest any) error {
 	if resp.StatusCode == http.StatusNotFound {
-		return apperr.ErrNotFound
+		return errs.ErrNotFound
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		c.log.Error("hiddify error response", "status", resp.StatusCode, "body", string(body))
-		return fmt.Errorf("%w: status %d", apperr.ErrHiddifyAPI, resp.StatusCode)
+		return fmt.Errorf("%w: status %d", errs.ErrHiddifyAPI, resp.StatusCode)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
 		return fmt.Errorf("hiddify: decode: %w", err)

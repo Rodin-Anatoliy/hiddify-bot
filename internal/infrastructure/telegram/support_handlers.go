@@ -12,7 +12,7 @@ import (
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/repository"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
 func (bot *Bot) handleSupportPrompt(c tele.Context) error {
@@ -134,7 +134,7 @@ func (bot *Bot) handleAdminReply(c tele.Context) error {
 	defer cancel()
 
 	session, sessionKey, err := bot.findAdminReplySession(ctx, c)
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, errs.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
@@ -178,7 +178,7 @@ func (bot *Bot) handleCancelReply(c tele.Context) error {
 
 func (bot *Bot) cancelAdminReply(ctx context.Context, c tele.Context) error {
 	session, err := bot.sessionRepo.Get(ctx, c.Message().ID)
-	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+	if err != nil && !errors.Is(err, errs.ErrNotFound) {
 		bot.log.Warn("reply session get failed", "err", err)
 	}
 	if err := bot.sessionRepo.Delete(ctx, activeAdminReplySessionID(bot.adminID)); err != nil {
@@ -200,7 +200,7 @@ func (bot *Bot) findAdminReplySession(ctx context.Context, c tele.Context) (*rep
 		if err == nil {
 			return session, replyTo.ID, nil
 		}
-		if !errors.Is(err, apperr.ErrNotFound) {
+		if !errors.Is(err, errs.ErrNotFound) {
 			return nil, 0, err
 		}
 	}

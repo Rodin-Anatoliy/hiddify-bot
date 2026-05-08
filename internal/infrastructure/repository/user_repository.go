@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
 type UserRepository struct{ db *DB }
@@ -100,7 +100,7 @@ func scanUser(s rowScanner) (*user.User, error) {
 		&linkedAt, &lastSeen, &u.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.ErrNotFound
+		return nil, errs.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("user scan: %w", err)

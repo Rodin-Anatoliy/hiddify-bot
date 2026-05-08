@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
 type AdminSession struct {
@@ -44,7 +44,7 @@ func (r *AdminSessionRepository) Get(ctx context.Context, messageID int) (*Admin
 		WHERE message_id = ? AND expires_at > CURRENT_TIMESTAMP
 	`, messageID).Scan(&s.MessageID, &s.TargetTgID, &s.ExpiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, apperr.ErrNotFound
+		return nil, errs.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("session get: %w", err)

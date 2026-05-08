@@ -9,7 +9,7 @@ import (
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/subscription"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/logger"
 )
 
@@ -30,7 +30,7 @@ func (m *mockUserRepo) Save(_ context.Context, u *user.User) error {
 func (m *mockUserRepo) SetCanMessage(_ context.Context, telegramID int64, canMessage bool) error {
 	u, ok := m.data[telegramID]
 	if !ok {
-		return apperr.ErrNotFound
+		return errs.ErrNotFound
 	}
 	u.CanMessage = canMessage
 	return nil
@@ -39,7 +39,7 @@ func (m *mockUserRepo) SetCanMessage(_ context.Context, telegramID int64, canMes
 func (m *mockUserRepo) FindByTelegramID(_ context.Context, id int64) (*user.User, error) {
 	u, ok := m.data[id]
 	if !ok {
-		return nil, apperr.ErrNotFound
+		return nil, errs.ErrNotFound
 	}
 	cp := *u
 	return &cp, nil
@@ -52,7 +52,7 @@ func (m *mockUserRepo) FindByHiddifyUUID(_ context.Context, uuid string) (*user.
 			return &cp, nil
 		}
 	}
-	return nil, apperr.ErrNotFound
+	return nil, errs.ErrNotFound
 }
 
 func (m *mockUserRepo) FindAllLinked(_ context.Context) ([]*user.User, error) {
@@ -95,13 +95,13 @@ func (m *mockHiddify) GetUserByUUID(_ context.Context, uuid string) (*subscripti
 			return &subscription.Status{UUID: uuid, IsActive: true}, nil
 		}
 	}
-	return nil, apperr.ErrNotFound
+	return nil, errs.ErrNotFound
 }
 
 func (m *mockHiddify) GetUserByTelegramID(_ context.Context, telegramID int64) (*subscription.Status, string, error) {
 	uuid, ok := m.byTelegram[telegramID]
 	if !ok {
-		return nil, "", apperr.ErrNotFound
+		return nil, "", errs.ErrNotFound
 	}
 	return &subscription.Status{UUID: uuid, IsActive: true}, uuid, nil
 }
@@ -210,7 +210,7 @@ func TestLinkManually_InvalidUUID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid uuid")
 	}
-	if !errors.Is(err, apperr.ErrNotFound) {
+	if !errors.Is(err, errs.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got: %v", err)
 	}
 }

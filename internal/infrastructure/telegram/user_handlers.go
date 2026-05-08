@@ -7,7 +7,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
 func (bot *Bot) handleStart(c tele.Context) error {
@@ -48,7 +48,7 @@ func (bot *Bot) handleStatus(c tele.Context) error {
 func (bot *Bot) sendStatus(ctx context.Context, c tele.Context) error {
 	sub, err := bot.userUC.GetSubscription(ctx, c.Sender().ID)
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
+		if errors.Is(err, errs.ErrNotFound) {
 			return c.Send("❌ Аккаунт не найден. Попробуйте /start.")
 		}
 		return c.Send("⚠️ Не удалось получить статус. Попробуйте позже.")
@@ -88,7 +88,7 @@ func (bot *Bot) sendStatus(ctx context.Context, c tele.Context) error {
 func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 	sub, err := bot.userUC.GetSubscription(ctx, c.Sender().ID)
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
+		if errors.Is(err, errs.ErrNotFound) {
 			return c.Send("❌ Аккаунт не найден. Попробуйте /start.")
 		}
 		return c.Send("⚠️ Не удалось получить статус. Попробуйте позже.")

@@ -9,7 +9,7 @@ import (
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/subscription"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/user"
-	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/apperr"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
 // HiddifyClient is the subset of the Hiddify API used by this use case.
@@ -86,11 +86,11 @@ func (uc *UserUseCase) RegisterOrGetWithState(ctx context.Context, telegramID in
 	firstSeen := false
 
 	u, err := uc.users.FindByTelegramID(ctx, telegramID)
-	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+	if err != nil && !errors.Is(err, errs.ErrNotFound) {
 		return nil, fmt.Errorf("register: lookup: %w", err)
 	}
 
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, errs.ErrNotFound) {
 		firstSeen = true
 		u = &user.User{
 			TelegramID: telegramID,
@@ -134,7 +134,7 @@ func (uc *UserUseCase) LinkManually(ctx context.Context, telegramID int64, uuid 
 	}
 
 	u, err := uc.users.FindByTelegramID(ctx, telegramID)
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, errs.ErrNotFound) {
 		u = &user.User{
 			TelegramID: telegramID,
 			CanMessage: false, // user hasn't pressed /start yet
@@ -167,7 +167,7 @@ func (uc *UserUseCase) GetSubscription(ctx context.Context, telegramID int64) (*
 		return nil, err
 	}
 	if !u.IsLinked() {
-		return nil, apperr.ErrNotFound
+		return nil, errs.ErrNotFound
 	}
 	return uc.hiddify.GetUserByUUID(ctx, u.HiddifyUUID)
 }
@@ -211,7 +211,7 @@ func (uc *UserUseCase) upsertFromPanel(ctx context.Context, pu PanelUserDTO, now
 	telegramID := *pu.TelegramID
 
 	existing, err := uc.users.FindByTelegramID(ctx, telegramID)
-	if errors.Is(err, apperr.ErrNotFound) {
+	if errors.Is(err, errs.ErrNotFound) {
 		u := &user.User{
 			TelegramID:  telegramID,
 			HiddifyUUID: pu.UUID,
@@ -276,7 +276,7 @@ func (uc *UserUseCase) ListPanelUserViews(ctx context.Context) ([]PanelUserView,
 			case findErr == nil:
 				view.KnownToBot = true
 				view.CanMessage = u.CanMessage
-			case errors.Is(findErr, apperr.ErrNotFound):
+			case errors.Is(findErr, errs.ErrNotFound):
 				// User exists in Hiddify with telegram_id, but has not touched the bot yet.
 			default:
 				return nil, fmt.Errorf("list panel users: local lookup: %w", findErr)
