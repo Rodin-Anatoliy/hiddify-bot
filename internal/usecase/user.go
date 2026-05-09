@@ -20,6 +20,21 @@ type HiddifyClient interface {
 	// ListPanelUsers returns a lightweight list for sync purposes.
 	ListPanelUsers(ctx context.Context) ([]PanelUserDTO, error)
 	SetTelegramID(ctx context.Context, uuid string, telegramID int64) error
+	CreateUser(ctx context.Context, req CreateUserRequest) (*CreatedUser, error)
+}
+
+// CreateUserRequest defines the minimal data needed to create a user in Hiddify.
+type CreateUserRequest struct {
+	Name       string
+	TelegramID int64
+}
+
+// CreatedUser represents the created Hiddify user returned by the panel.
+type CreatedUser struct {
+	UUID       string
+	Name       string
+	SubscriptionURL string
+	ExpiresAt  time.Time
 }
 
 // PanelUserDTO carries the minimum data needed for /sync.
@@ -301,4 +316,43 @@ func (uc *UserUseCase) ListUnboundPanelUsers(ctx context.Context) ([]PanelUserDT
 		}
 	}
 	return out, nil
+}
+
+// ApproveAccessRequest creates a new Hiddify user, links them in local DB,
+// and returns the created user data so the bot can notify them.
+func (uc *UserUseCase) ApproveAccessRequest(ctx context.Context, telegramID int64, username string) (*CreatedUser, error) {
+	name := username
+	if name == "" {
+		name = fmt.Sprintf("tg_%d", telegramID)
+	}
+
+	created, err := uc.hiddify.CreateUser(ctx, CreateUserRequest{
+		Name:       name,
+		TelegramID: telegramID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("approve access: create in panel: %w", err)
+	}
+
+	now := time.Now()
+	u, findErr := uc.users.FindByTelegramID(ctx, telegramID)
+	if errors.Is(findErr, errs.ErrNotFound) {
+		u = &user.User{
+			TelegramID: telegramID,
+			Username:   username,
+			CreatedAt:  now,
+		}
+	} else if findErr != nil {
+		return nil, fmt.Errorf("approve access: find user: %w", findErr)
+	}
+
+	u.HiddifyUUID = created.UUID
+	u.LinkSource = "approved"
+	u.LinkedAt = &now
+
+	if err := uc.users.Save(ctx, u); err != nil {
+		return nil, fmt.Errorf("approve access: save: %w", err)
+	}
+
+	return created, nil
 }

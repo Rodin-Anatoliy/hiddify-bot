@@ -132,25 +132,33 @@ func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 func (bot *Bot) handleAccessRequest(ctx context.Context, c tele.Context) error {
 	sender := c.Sender()
 	username := sender.Username
-	if username == "" {
-		username = "без username"
-	} else {
-		username = "@" + username
+
+	displayName := "без username"
+	if username != "" {
+		displayName = "@" + username
+	}
+
+	// Build approve button — encodes telegramID:username so handler has all data.
+	approveData := fmt.Sprintf("approve:%d:%s", sender.ID, username)
+	approveMarkup := &tele.ReplyMarkup{
+		InlineKeyboard: [][]tele.InlineButton{
+			{{Text: "✅ Одобрить и создать аккаунт", Data: approveData}},
+			{{Text: "❌ Отклонить", Data: fmt.Sprintf("reject:%d", sender.ID)}},
+		},
 	}
 
 	if _, err := bot.b.Send(
 		chatByID(bot.adminID),
 		fmt.Sprintf(
-			"🔐 *Заявка на подключение*\n\nПользователь: %s\nTelegram ID: `%d`\n\nПосле проверки создайте или найдите пользователя в Hiddify и выполните:\n`/bind %d <hiddify_uuid>`",
-			username,
-			sender.ID,
-			sender.ID,
+			"🔐 *Заявка на подключение*\n\nПользователь: %s\nTelegram ID: `%d`",
+			displayName, sender.ID,
 		),
 		tele.ModeMarkdown,
+		approveMarkup,
 	); err != nil {
 		bot.log.Warn("access request: notify admin failed", "err", err)
 		return c.Send("⚠️ Не удалось отправить заявку. Напишите в поддержку следующим сообщением.")
 	}
 
-	return c.Send("✅ Заявка отправлена администратору. После проверки доступ привяжут к этому Telegram.")
+	return c.Send("✅ Заявка отправлена. Как только администратор одобрит — вы получите уведомление и доступ к подписке.")
 }

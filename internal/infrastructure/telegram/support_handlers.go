@@ -21,6 +21,10 @@ func (bot *Bot) handleSupportPrompt(c tele.Context) error {
 
 func (bot *Bot) routeText(c tele.Context) error {
 	if c.Sender().ID == bot.adminID {
+		// Check if admin is in the middle of a bind wizard.
+		if consumed, err := bot.tryHandleBindWizard(c); consumed {
+			return err
+		}
 		return bot.handleAdminReply(c)
 	}
 	return bot.handleUserText(c)

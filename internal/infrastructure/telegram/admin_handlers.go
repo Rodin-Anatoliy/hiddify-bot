@@ -40,30 +40,6 @@ func (bot *Bot) handleBroadcast(c tele.Context) error {
 	))
 }
 
-func (bot *Bot) handleBind(c tele.Context) error {
-	parts := strings.Fields(c.Text())
-	if len(parts) != 3 {
-		return c.Send("Использование: /bind <telegram_id> <hiddify_uuid>")
-	}
-	targetID, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return c.Send("⚠️ Неверный telegram_id — должно быть число.")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
-	defer cancel()
-
-	if err := bot.userUC.LinkManually(ctx, targetID, parts[2]); err != nil {
-		return c.Send("⚠️ Ошибка привязки: " + err.Error())
-	}
-	return c.Send(
-		fmt.Sprintf(
-			"✅ Пользователь `%d` привязан к UUID `%s`.\n\nЕсли ещё не запускал бота — попросите нажать /start.",
-			targetID, parts[2],
-		),
-		tele.ModeMarkdown,
-	)
-}
 
 func (bot *Bot) handleSync(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
@@ -235,4 +211,83 @@ func (bot *Bot) handleHistory(c tele.Context) error {
 	}
 
 	return c.Send(sb.String(), tele.ModeMarkdown)
+}
+
+// handleApproveAccess processes admin approval of an access request.
+// Data format: "approve:<telegram_id>:<username>"
+func (bot *Bot) handleApproveAccess(c tele.Context) error {
+	_ = c.Respond()
+
+	parts := strings.SplitN(strings.TrimPrefix(c.Data(), "approve:"), ":", 2)
+	if len(parts) < 1 {
+		return c.Send("⚠️ Неверный формат данных заявки.")
+	}
+	targetID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return c.Send("⚠️ Неверный telegram_id в заявке.")
+	}
+	username := ""
+	if len(parts) == 2 {
+		username = parts[1]
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
+
+	created, err := bot.userUC.ApproveAccessRequest(ctx, targetID, username)
+	if err != nil {
+		bot.log.Error("approve access: failed", "err", err, "target", targetID)
+		return c.Send("⚠️ Ошибка при создании аккаунта: " + err.Error())
+	}
+
+	// Edit admin's message to remove buttons and show result.
+	_, _ = bot.b.Edit(
+		c.Message(),
+		fmt.Sprintf("✅ Одобрено. Аккаунт создан.\nUUID: `%s`\nTelegram ID: `%d`", created.UUID, targetID),
+		tele.ModeMarkdown,
+	)
+
+	// Notify the user.
+	userMsg := fmt.Sprintf(
+		"🎉 *Доступ одобрен!*\n\n"+
+			"Ваш аккаунт создан. Нажмите /start чтобы увидеть статус подписки.\n\n"+
+			"🔗 [Ссылка на подписку](%s)",
+		created.SubscriptionURL,
+	)
+	if _, err := bot.b.Send(chatByID(targetID), userMsg, tele.ModeMarkdown, tele.NoPreview); err != nil {
+		bot.log.Warn("approve access: notify user failed", "err", err, "target", targetID)
+		return c.Send(fmt.Sprintf("⚠️ Аккаунт создан, но уведомить пользователя не удалось. UUID: `%s`", created.UUID), tele.ModeMarkdown)
+	}
+	return nil
+}
+
+// handleRejectAccess processes admin rejection of an access request.
+// Data format: "reject:<telegram_id>"
+func (bot *Bot) handleRejectAccess(c tele.Context) error {
+	_ = c.Respond()
+
+	targetID, err := strconv.ParseInt(strings.TrimPrefix(c.Data(), "reject:"), 10, 64)
+	if err != nil {
+		return c.Send("⚠️ Неверный telegram_id.")
+	}
+
+	// Edit admin message to remove buttons.
+	_, _ = bot.b.Edit(
+		c.Message(),
+		fmt.Sprintf("❌ Заявка от `%d` отклонена.", targetID),
+		tele.ModeMarkdown,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
+
+	if _, err := bot.b.Send(
+		chatByID(targetID),
+		"❌ К сожалению, ваша заявка на подключение отклонена.\n\nЕсли считаете это ошибкой — напишите в поддержку.",
+		tele.ModeMarkdown,
+	); err != nil {
+		bot.log.Warn("reject access: notify user failed", "err", err, "target", targetID)
+	}
+	_ = ctx
+	return nil
 }

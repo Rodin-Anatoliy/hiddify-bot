@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"fmt"
 	"errors"
 	"testing"
 	"time"
@@ -117,6 +118,16 @@ func (m *mockHiddify) ListPanelUsers(_ context.Context) ([]usecase.PanelUserDTO,
 }
 
 func (m *mockHiddify) SetTelegramID(_ context.Context, _ string, _ int64) error { return nil }
+
+func (m *mockHiddify) CreateUser(_ context.Context, req usecase.CreateUserRequest) (*usecase.CreatedUser, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name required")
+	}
+	return &usecase.CreatedUser{
+		UUID:            "new-uuid-" + req.Name,
+		SubscriptionURL: "https://panel.example.com/sub/" + req.Name + "/",
+	}, nil
+}
 
 func TestRegisterOrGet_NewUser_AutoLinked(t *testing.T) {
 	repo := newMockUserRepo()
@@ -302,5 +313,49 @@ func TestMarkCanMessage(t *testing.T) {
 	u, _ := repo.FindByTelegramID(context.Background(), 42)
 	if u.CanMessage {
 		t.Error("expected CanMessage=false")
+	}
+}
+
+func TestApproveAccessRequest_CreatesUserAndLinks(t *testing.T) {
+	repo := newMockUserRepo()
+	h := newMockHiddify(nil)
+	uc := usecase.NewUserUseCase(repo, h, logger.New("debug"))
+
+	created, err := uc.ApproveAccessRequest(context.Background(), 42, "alice")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created.UUID == "" {
+		t.Error("expected non-empty UUID")
+	}
+	if created.SubscriptionURL == "" {
+		t.Error("expected non-empty SubscriptionURL")
+	}
+
+	// User should be saved locally.
+	u, err := repo.FindByTelegramID(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("user not saved: %v", err)
+	}
+	if u.HiddifyUUID != created.UUID {
+		t.Errorf("uuid mismatch: got %s, want %s", u.HiddifyUUID, created.UUID)
+	}
+	if u.LinkSource != "approved" {
+		t.Errorf("expected link_source=approved, got %s", u.LinkSource)
+	}
+}
+
+func TestApproveAccessRequest_FallbackNameWhenNoUsername(t *testing.T) {
+	repo := newMockUserRepo()
+	h := newMockHiddify(nil)
+	uc := usecase.NewUserUseCase(repo, h, logger.New("debug"))
+
+	// Empty username — should use tg_<id> as name.
+	created, err := uc.ApproveAccessRequest(context.Background(), 99, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created.UUID == "" {
+		t.Error("expected UUID even with empty username")
 	}
 }
