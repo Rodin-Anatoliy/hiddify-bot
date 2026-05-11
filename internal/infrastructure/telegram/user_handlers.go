@@ -139,7 +139,8 @@ func (bot *Bot) handleAccessRequest(ctx context.Context, c tele.Context) error {
 	}
 
 	// Build approve button — encodes telegramID:username so handler has all data.
-	approveData := fmt.Sprintf("approve:%d:%s", sender.ID, username)
+	// Only encode telegram_id — username fetched from local DB on approval.
+	approveData := fmt.Sprintf("approve:%d", sender.ID)
 	approveMarkup := &tele.ReplyMarkup{
 		InlineKeyboard: [][]tele.InlineButton{
 			{{Text: "✅ Одобрить и создать аккаунт", Data: approveData}},
@@ -147,13 +148,16 @@ func (bot *Bot) handleAccessRequest(ctx context.Context, c tele.Context) error {
 		},
 	}
 
+	// Use plain text for the username to avoid Markdown parse errors
+	// when the username contains special characters like _ * [ ]
+	adminMsg := fmt.Sprintf(
+		"🔐 Заявка на подключение\n\nПользователь: %s\nTelegram ID: %d",
+		displayName, sender.ID,
+	)
+
 	if _, err := bot.b.Send(
 		chatByID(bot.adminID),
-		fmt.Sprintf(
-			"🔐 *Заявка на подключение*\n\nПользователь: %s\nTelegram ID: `%d`",
-			displayName, sender.ID,
-		),
-		tele.ModeMarkdown,
+		adminMsg,
 		approveMarkup,
 	); err != nil {
 		bot.log.Warn("access request: notify admin failed", "err", err)

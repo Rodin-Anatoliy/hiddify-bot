@@ -218,21 +218,18 @@ func (bot *Bot) handleHistory(c tele.Context) error {
 func (bot *Bot) handleApproveAccess(c tele.Context) error {
 	_ = c.Respond()
 
-	parts := strings.SplitN(strings.TrimPrefix(c.Data(), "approve:"), ":", 2)
-	if len(parts) < 1 {
-		return c.Send("⚠️ Неверный формат данных заявки.")
-	}
-	targetID, err := strconv.ParseInt(parts[0], 10, 64)
+	targetID, err := strconv.ParseInt(strings.TrimPrefix(c.Data(), "approve:"), 10, 64)
 	if err != nil {
 		return c.Send("⚠️ Неверный telegram_id в заявке.")
 	}
-	username := ""
-	if len(parts) == 2 {
-		username = parts[1]
-	}
 
+	// Fetch username from local DB if user already pressed /start, otherwise empty.
+	var username string
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
+	if existing, dbErr := bot.userUC.GetUser(ctx, targetID); dbErr == nil {
+		username = existing.Username
+	}
 
 	created, err := bot.userUC.ApproveAccessRequest(ctx, targetID, username)
 	if err != nil {

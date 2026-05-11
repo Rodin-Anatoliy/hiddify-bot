@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"context"
 
 	tele "gopkg.in/telebot.v3"
@@ -12,7 +13,16 @@ func (bot *Bot) handleCallback(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
-	switch c.Data() {
+	data := c.Data()
+
+	switch {
+	case strings.HasPrefix(data, "approve:"):
+		return bot.handleApproveAccess(c)
+	case strings.HasPrefix(data, "reject:"):
+		return bot.handleRejectAccess(c)
+	}
+
+	switch data {
 	case "cmd:status":
 		return bot.editStatus(ctx, c)
 	case "cmd:support":

@@ -12,6 +12,19 @@ import (
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/errs"
 )
 
+// CreateUserRequest holds parameters for creating a new Hiddify user.
+type CreateUserRequest struct {
+	Name       string
+	TelegramID int64
+}
+
+// CreatedUser is returned after successfully creating a user in the panel.
+type CreatedUser struct {
+	UUID            string
+	SubscriptionURL string
+	ExpiresAt       time.Time
+}
+
 // HiddifyClient is the subset of the Hiddify API used by this use case.
 // The interface is defined here (not in infrastructure) so use cases stay testable.
 type HiddifyClient interface {
@@ -21,20 +34,6 @@ type HiddifyClient interface {
 	ListPanelUsers(ctx context.Context) ([]PanelUserDTO, error)
 	SetTelegramID(ctx context.Context, uuid string, telegramID int64) error
 	CreateUser(ctx context.Context, req CreateUserRequest) (*CreatedUser, error)
-}
-
-// CreateUserRequest defines the minimal data needed to create a user in Hiddify.
-type CreateUserRequest struct {
-	Name       string
-	TelegramID int64
-}
-
-// CreatedUser represents the created Hiddify user returned by the panel.
-type CreatedUser struct {
-	UUID       string
-	Name       string
-	SubscriptionURL string
-	ExpiresAt  time.Time
 }
 
 // PanelUserDTO carries the minimum data needed for /sync.
@@ -355,4 +354,9 @@ func (uc *UserUseCase) ApproveAccessRequest(ctx context.Context, telegramID int6
 	}
 
 	return created, nil
+}
+
+// GetUser returns a local user record by Telegram ID.
+func (uc *UserUseCase) GetUser(ctx context.Context, telegramID int64) (*user.User, error) {
+	return uc.users.FindByTelegramID(ctx, telegramID)
 }
