@@ -66,7 +66,7 @@ func (r *UserRepository) FindByHiddifyUUID(ctx context.Context, uuid string) (*u
 func (r *UserRepository) FindAllLinked(ctx context.Context) ([]*user.User, error) {
 	rows, err := r.db.conn.QueryContext(ctx,
 		`SELECT telegram_id, hiddify_uuid, username, can_message, link_source, linked_at, last_seen, created_at
-		 FROM users WHERE hiddify_uuid != '' AND can_message = 1`)
+   FROM users WHERE hiddify_uuid != '' AND telegram_id > 0`)
 	if err != nil {
 		return nil, fmt.Errorf("user find linked: %w", err)
 	}

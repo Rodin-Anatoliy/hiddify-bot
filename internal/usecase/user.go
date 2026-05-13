@@ -232,7 +232,7 @@ func (uc *UserUseCase) upsertFromPanel(ctx context.Context, pu PanelUserDTO, now
 			Username:    pu.Name,
 			LinkSource:  "sync",
 			LinkedAt:    &now,
-			CanMessage:  false,
+			CanMessage:  true,
 			CreatedAt:   now,
 		}
 		if saveErr := uc.users.Save(ctx, u); saveErr != nil {

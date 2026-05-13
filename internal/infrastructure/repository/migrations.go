@@ -51,6 +51,10 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("migration %q: %w", stmt, err)
 		}
 	}
+
+	// temporary fix
+	_, _ = db.conn.Exec(`UPDATE users SET can_message = 1 WHERE telegram_id > 0 AND hiddify_uuid != ''`)
+
 	return nil
 }
 
