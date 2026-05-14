@@ -8,10 +8,10 @@ import (
 	"syscall"
 
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/config"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/hiddify"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/repository"
-	tgbot "github.com/Rodin-Anatoliy/hiddify-bot/internal/infrastructure/telegram"
-	"github.com/Rodin-Anatoliy/hiddify-bot/internal/usecase"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/repository/hiddify"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/repository/sqlite"
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/service"
+	tgbot "github.com/Rodin-Anatoliy/hiddify-bot/internal/transport/tg"
 	"github.com/Rodin-Anatoliy/hiddify-bot/pkg/logger"
 )
 
@@ -25,16 +25,16 @@ func main() {
 	slog.SetDefault(log)
 	log.Info("starting hiddify-bot", "commit", commit)
 
-	db, err := repository.Open(cfg.DB.Path)
+	db, err := sqlite.Open(cfg.DB.Path)
 	if err != nil {
 		log.Error("database init failed", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
 
-	userRepo := repository.NewUserRepository(db)
-	ticketRepo := repository.NewTicketRepository(db)
-	sessionRepo := repository.NewAdminSessionRepository(db)
+	userRepo := sqlite.NewUserRepository(db)
+	ticketRepo := sqlite.NewTicketRepository(db)
+	sessionRepo := sqlite.NewAdminSessionRepository(db)
 
 	if n, err := sessionRepo.DeleteExpired(context.Background()); err != nil {
 		log.Warn("session cleanup failed", "err", err)
@@ -50,17 +50,16 @@ func main() {
 		log,
 	)
 
-	userUC := usecase.NewUserUseCase(userRepo, hiddifyClient, log)
+	userUC := service.NewUserUseCase(userRepo, hiddifyClient, log)
 
-	// Bot implements usecase.Sender, so support and broadcast are injected after construction.
 	bot, err := tgbot.New(cfg.Telegram.Token, cfg.Telegram.AdminID, userUC, sessionRepo, log)
 	if err != nil {
 		log.Error("telegram bot init failed", "err", err)
 		os.Exit(1)
 	}
 
-	supportUC := usecase.NewSupportUseCase(ticketRepo, bot, log)
-	broadcastUC := usecase.NewBroadcastUseCase(userRepo, bot, log)
+	supportUC := service.NewSupportUseCase(ticketRepo, log)
+	broadcastUC := service.NewBroadcastUseCase(userRepo, log)
 	bot.InjectUseCases(supportUC, broadcastUC)
 
 	quit := make(chan os.Signal, 1)

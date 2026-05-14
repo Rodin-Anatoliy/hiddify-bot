@@ -13,12 +13,12 @@ const (
 )
 
 type Message struct {
-	ID         int64
-	TelegramID int64
-	Direction  Direction
-	Text       string
-	FileID     string
-	CreatedAt  time.Time
+	ID           int64
+	TelegramID   int64
+	Direction    Direction
+	Text         string
+	AttachmentID string
+	CreatedAt    time.Time
 }
 
 type Repository interface {
