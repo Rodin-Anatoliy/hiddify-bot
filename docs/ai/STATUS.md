@@ -14,7 +14,7 @@
 2. [x] **Docs:** Align README and `docs/ai` with current structure.
 3. [x] **Tests:** Expand tests for `repository/sqlite` with a temporary DB.
 4. [x] **Tests:** Add Hiddify adapter mapping tests with `httptest`.
-5. [ ] **Hardening:** Review broadcast cancellation/rate-limit behavior.
+5. [x] **Hardening:** Review broadcast cancellation/rate-limit behavior.
 6. [ ] **Config:** Move Hiddify create-user defaults to config if they become deployment policy.
 
 ## Maintenance Rules

@@ -2,6 +2,7 @@ package tg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -73,11 +74,14 @@ func (bot *Bot) sendBroadcast(ctx context.Context, recipients []*user.User, msg 
 	close(jobs)
 
 	g, gCtx := errgroup.WithContext(ctx)
+	ticker := time.NewTicker(broadcastDelay)
+	defer ticker.Stop()
+
 	for range broadcastWorkers {
 		g.Go(func() error {
 			for u := range jobs {
-				if gCtx.Err() != nil {
-					return gCtx.Err()
+				if err := waitBroadcastTurn(gCtx, ticker.C); err != nil {
+					return err
 				}
 				if err := bot.deliverBroadcast(gCtx, u.TelegramID, msg); err != nil {
 					atomic.AddInt32(&result.failed, 1)
@@ -85,15 +89,25 @@ func (bot *Bot) sendBroadcast(ctx context.Context, recipients []*user.User, msg 
 				} else {
 					atomic.AddInt32(&result.success, 1)
 				}
-				time.Sleep(broadcastDelay)
 			}
 			return nil
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		bot.log.Warn("broadcast stopped", "err", err)
+	}
 	bot.log.Info("broadcast done", "total", result.total, "ok", result.success, "fail", result.failed)
 	return result
+}
+
+func waitBroadcastTurn(ctx context.Context, ticks <-chan time.Time) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-ticks:
+		return nil
+	}
 }
 
 func (bot *Bot) deliverBroadcast(ctx context.Context, telegramID int64, msg broadcastMessage) error {
