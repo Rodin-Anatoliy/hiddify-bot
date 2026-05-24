@@ -144,14 +144,35 @@ func (uc *UserUseCase) LinkManually(ctx context.Context, telegramID int64, uuid 
 
 // GetSubscription returns the live subscription status for a linked user.
 func (uc *UserUseCase) GetSubscription(ctx context.Context, telegramID int64) (*subscription.Status, error) {
+	subscriptions, err := uc.GetSubscriptions(ctx, telegramID)
+	if err != nil {
+		return nil, err
+	}
+	return subscriptions[0], nil
+}
+
+// GetSubscriptions returns every live subscription profile linked to a Telegram user.
+func (uc *UserUseCase) GetSubscriptions(ctx context.Context, telegramID int64) ([]*subscription.Status, error) {
 	u, err := uc.users.FindByTelegramID(ctx, telegramID)
 	if err != nil {
 		return nil, err
 	}
-	if !u.IsLinked() {
-		return nil, domain.ErrNotFound
+
+	subscriptions, err := uc.hiddify.ListStatusesByTelegramID(ctx, telegramID)
+	if err == nil {
+		return subscriptions, nil
 	}
-	return uc.hiddify.GetUserByUUID(ctx, u.HiddifyUUID)
+	if !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+	if u.IsLinked() {
+		status, statusErr := uc.hiddify.GetUserByUUID(ctx, u.HiddifyUUID)
+		if statusErr != nil {
+			return nil, statusErr
+		}
+		return []*subscription.Status{status}, nil
+	}
+	return nil, domain.ErrNotFound
 }
 
 // MarkCanMessage records whether Telegram delivery is currently possible.

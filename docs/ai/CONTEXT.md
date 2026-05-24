@@ -2,7 +2,7 @@
 
 ## Purpose
 **hiddify-bot** is a Go-based (1.22) Telegram bot for managing Hiddify Manager users. 
-- **Core Logic:** Registration, subscription status checks, access requests, support messaging, and admin broadcasts.
+- **Core Logic:** Registration, multi-profile subscription status checks, access requests, support messaging, and admin broadcasts.
 - **Architecture:** Pragmatic layered DDD / Modular Monolith.
 
 ## Tech Stack
@@ -31,6 +31,7 @@ Follow these rules strictly to maintain layer isolation:
 
 ## Key Business Flows
 - **Registration:** Handled in `internal/service/user.go`.
+- **Multi-profile status:** `/status` reads all Hiddify profiles linked to the same Telegram ID. Broadcast remains one Telegram message per local user.
 - **Sync/Approval:** Orchestration of Hiddify panel and local DB lives in `service`.
 - **Support:** Messages persisted via `service/support.go`, delivered via `transport/tg`.
 - **Broadcast:** Recipient selection in `service`, delivery and rate-limiting in `transport/tg`.
@@ -39,6 +40,11 @@ Follow these rules strictly to maintain layer isolation:
 - **TelegramID:** User identifier from Telegram (used in transport and domain).
 - **HiddifyUUID:** Identifier for the Hiddify panel user (used in repository and domain).
 - **Note:** Domain identifiers are currently pragmatic and platform-coupled.
+
+## Product Direction
+1. **Multi-profile support first:** users may have several Hiddify profiles with the same Telegram ID and should see all subscription links in one bot response.
+2. **Admin UI second:** replace command-heavy admin flows with editable Telegram panels/wizards where useful.
+3. **Architecture cleanup ongoing:** keep changes incremental; avoid a database split until local per-profile metadata is required.
 
 ---
 *Refer to `INDEX.json` for the full directory tree and package mapping.*

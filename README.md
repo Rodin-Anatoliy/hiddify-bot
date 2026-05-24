@@ -7,7 +7,7 @@ Telegram bot for managing [Hiddify Manager](https://github.com/hiddify/HiddifyMa
 | Command | Who | Description |
 |---|---|---|
 | `/start` | User | Register; auto-link Hiddify account if `telegram_id` is set in panel |
-| `/status` | User | Live subscription stats: traffic, expiry, personal link |
+| `/status` | User | Live stats and links for all profiles tied to this Telegram ID |
 | `/support` | User | Two-way support channel with admin |
 | `/bind <tg_id> <uuid>` | Admin | Manually link a Telegram user to a Hiddify account |
 | `/sync` | Admin | Pull all panel users with `telegram_id` into local DB |
@@ -85,9 +85,8 @@ Dependency rule: `transport/tg -> service -> domain`; repositories implement dom
 AI-oriented project notes live in `docs/ai/`.
 
 ## TODO
-- Move Hiddify create-user defaults to config if they become deployment policy.
-- Add focused tests for SQLite repositories and Hiddify API mapping.
-- Review multi-subscription support for users with several Hiddify links.
+- Decide whether multi-subscription support needs local per-profile persistence after `/status` usage is validated.
+- Improve admin UX by turning command-heavy flows into editable Telegram panels/wizards.
 
 ## License
 

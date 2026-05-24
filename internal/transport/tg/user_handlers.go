@@ -48,7 +48,7 @@ func (bot *Bot) handleStatus(c tele.Context) error {
 }
 
 func (bot *Bot) sendStatus(ctx context.Context, c tele.Context) error {
-	sub, err := bot.userUC.GetSubscription(ctx, c.Sender().ID)
+	subscriptions, err := bot.userUC.GetSubscriptions(ctx, c.Sender().ID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return c.Send("❌ Аккаунт не найден. Попробуйте /start.")
@@ -56,11 +56,11 @@ func (bot *Bot) sendStatus(ctx context.Context, c tele.Context) error {
 		return c.Send("⚠️ Не удалось получить статус. Попробуйте позже.")
 	}
 
-	return c.Send(views.Status(sub), tele.ModeMarkdown, tele.NoPreview, markup.StatusMenu())
+	return c.Send(views.Statuses(subscriptions), tele.ModeMarkdown, tele.NoPreview, markup.StatusMenu())
 }
 
 func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
-	sub, err := bot.userUC.GetSubscription(ctx, c.Sender().ID)
+	subscriptions, err := bot.userUC.GetSubscriptions(ctx, c.Sender().ID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return c.Send("❌ Аккаунт не найден. Попробуйте /start.")
@@ -68,7 +68,7 @@ func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 		return c.Send("⚠️ Не удалось получить статус. Попробуйте позже.")
 	}
 
-	text := views.Status(sub)
+	text := views.Statuses(subscriptions)
 
 	if _, editErr := bot.b.Edit(c.Message(), text, tele.ModeMarkdown, tele.NoPreview, markup.StatusMenu()); editErr != nil {
 		return c.Send(text, tele.ModeMarkdown, tele.NoPreview, markup.StatusMenu())

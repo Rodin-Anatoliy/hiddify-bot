@@ -12,6 +12,11 @@ import (
 )
 
 func Status(sub *subscription.Status) string {
+	title := "*Статус подписки*"
+	if sub.Name != "" {
+		title = fmt.Sprintf("*Статус подписки: %s*", escapeMarkdownLabel(sub.Name))
+	}
+
 	statusLabel := "🟢 Активна"
 	if !sub.IsActive || sub.IsExpired() {
 		statusLabel = "🔴 Неактивна"
@@ -28,18 +33,63 @@ func Status(sub *subscription.Status) string {
 	}
 
 	return fmt.Sprintf(
-		"📊 *Статус подписки*\n\n"+
+		"📊 %s\n\n"+
 			"Статус: %s\n"+
 			"Использовано: %s\n"+
 			"Остаток: %s\n"+
 			"Истекает: %s\n\n"+
 			"🔗 [Ссылка на подписку](%s)",
+		title,
 		statusLabel,
 		FormatBytes(sub.UsedTrafficBytes),
 		remaining,
 		expire,
 		sub.SubscriptionURL,
 	)
+}
+
+func Statuses(subscriptions []*subscription.Status) string {
+	if len(subscriptions) == 1 {
+		return Status(subscriptions[0])
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📊 *Ваши подписки: %d*\n\n", len(subscriptions))
+
+	for i, sub := range subscriptions {
+		name := sub.Name
+		if name == "" {
+			name = ShortID(sub.UUID)
+		}
+
+		statusLabel := "🟢"
+		if !sub.IsActive || sub.IsExpired() {
+			statusLabel = "🔴"
+		}
+
+		remaining := "∞"
+		if sub.TotalTrafficBytes > 0 {
+			remaining = FormatBytes(sub.RemainingTrafficBytes())
+		}
+
+		expire := "Бессрочно"
+		if sub.ExpireDate != nil {
+			expire = sub.ExpireDate.Format("02.01.2006")
+		}
+
+		fmt.Fprintf(&sb,
+			"%d. %s %s\nИспользовано: %s | Остаток: %s | До: %s\n[Ссылка на подписку](%s)\n\n",
+			i+1,
+			statusLabel,
+			escapeMarkdownLabel(name),
+			FormatBytes(sub.UsedTrafficBytes),
+			remaining,
+			expire,
+			sub.SubscriptionURL,
+		)
+	}
+
+	return strings.TrimSpace(sb.String())
 }
 
 func LocalUsers(title string, users []*user.User) string {
@@ -173,4 +223,17 @@ func FormatBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func escapeMarkdownLabel(s string) string {
+	replacer := strings.NewReplacer(
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"`", "\\`",
+	)
+	return replacer.Replace(s)
 }

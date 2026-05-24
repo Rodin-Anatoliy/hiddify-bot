@@ -88,16 +88,30 @@ func (c *Client) GetUserByUUID(ctx context.Context, uuid string) (*subscription.
 
 // GetUserByTelegramID finds the first panel user whose telegram_id matches.
 func (c *Client) GetUserByTelegramID(ctx context.Context, telegramID int64) (*subscription.Status, string, error) {
-	all, err := c.listRaw(ctx)
+	statuses, err := c.ListStatusesByTelegramID(ctx, telegramID)
 	if err != nil {
 		return nil, "", err
 	}
+	return statuses[0], statuses[0].UUID, nil
+}
+
+// ListStatusesByTelegramID returns every panel profile linked to a Telegram ID.
+func (c *Client) ListStatusesByTelegramID(ctx context.Context, telegramID int64) ([]*subscription.Status, error) {
+	all, err := c.listRaw(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := make([]*subscription.Status, 0)
 	for _, u := range all {
 		if u.TelegramID != nil && *u.TelegramID == telegramID {
-			return toStatus(u, c.baseURL, c.userProxy, u.UUID), u.UUID, nil
+			statuses = append(statuses, toStatus(u, c.baseURL, c.userProxy, u.UUID))
 		}
 	}
-	return nil, "", domain.ErrNotFound
+	if len(statuses) == 0 {
+		return nil, domain.ErrNotFound
+	}
+	return statuses, nil
 }
 
 // SetTelegramID links a Telegram chat ID to an existing Hiddify user.
@@ -178,6 +192,7 @@ func (c *Client) setHeaders(req *http.Request) {
 
 func toStatus(r apiUser, baseURL, userProxy, uuid string) *subscription.Status {
 	s := &subscription.Status{
+		Name:              r.Name,
 		UUID:              uuid,
 		UsedTrafficBytes:  gbToBytes(r.UsedTrafficGB),
 		TotalTrafficBytes: gbToBytes(r.TotalTrafficGB),

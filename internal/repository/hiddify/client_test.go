@@ -88,6 +88,52 @@ func TestClientGetUserByTelegramIDFindsMappedUser(t *testing.T) {
 	assertStatus(t, status, server.URL, "uuid-1")
 }
 
+func TestClientListStatusesByTelegramIDReturnsAllProfiles(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertRequest(t, r, http.MethodGet, "/admin/api/v2/admin/user/")
+		respondJSON(t, w, []map[string]any{
+			{
+				"uuid":             "uuid-phone",
+				"name":             "phone",
+				"telegram_id":      int64(42),
+				"is_active":        true,
+				"current_usage_GB": 1,
+			},
+			{
+				"uuid":             "uuid-laptop",
+				"name":             "laptop",
+				"telegram_id":      int64(42),
+				"is_active":        true,
+				"current_usage_GB": 2,
+			},
+			{
+				"uuid":        "uuid-other",
+				"name":        "other",
+				"telegram_id": int64(100),
+				"is_active":   true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(server.URL)
+	statuses, err := client.ListStatusesByTelegramID(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("ListStatusesByTelegramID() error = %v", err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("len(statuses) = %d, want 2", len(statuses))
+	}
+	if statuses[0].UUID != "uuid-phone" || statuses[0].Name != "phone" {
+		t.Fatalf("statuses[0] = %+v, want phone profile", statuses[0])
+	}
+	if statuses[1].UUID != "uuid-laptop" || statuses[1].Name != "laptop" {
+		t.Fatalf("statuses[1] = %+v, want laptop profile", statuses[1])
+	}
+}
+
 func TestClientGetUserByTelegramIDReturnsNotFound(t *testing.T) {
 	t.Parallel()
 

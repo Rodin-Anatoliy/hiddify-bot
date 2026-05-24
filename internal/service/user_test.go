@@ -80,6 +80,7 @@ func (m *mockUserRepo) FindAllWithUUID(_ context.Context) ([]*user.User, error) 
 
 type mockHiddify struct {
 	byTelegram map[int64]string
+	profiles   map[int64][]*subscription.Status
 	unbound    []subscription.PanelUser
 }
 
@@ -107,6 +108,17 @@ func (m *mockHiddify) GetUserByTelegramID(_ context.Context, telegramID int64) (
 	return &subscription.Status{UUID: uuid, IsActive: true}, uuid, nil
 }
 
+func (m *mockHiddify) ListStatusesByTelegramID(_ context.Context, telegramID int64) ([]*subscription.Status, error) {
+	if profiles := m.profiles[telegramID]; len(profiles) > 0 {
+		return profiles, nil
+	}
+	uuid, ok := m.byTelegram[telegramID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return []*subscription.Status{{UUID: uuid, IsActive: true}}, nil
+}
+
 func (m *mockHiddify) ListPanelUsers(_ context.Context) ([]subscription.PanelUser, error) {
 	out := make([]subscription.PanelUser, 0, len(m.byTelegram))
 	for tgID, uuid := range m.byTelegram {
@@ -115,6 +127,35 @@ func (m *mockHiddify) ListPanelUsers(_ context.Context) ([]subscription.PanelUse
 	}
 	out = append(out, m.unbound...)
 	return out, nil
+}
+
+func TestGetSubscriptions_ReturnsAllTelegramProfiles(t *testing.T) {
+	repo := newMockUserRepo()
+	_ = repo.Save(context.Background(), &user.User{
+		TelegramID:  42,
+		HiddifyUUID: "uuid-primary",
+		CanMessage:  true,
+		CreatedAt:   time.Now(),
+	})
+	h := newMockHiddify(map[int64]string{42: "uuid-primary"})
+	h.profiles = map[int64][]*subscription.Status{
+		42: {
+			{UUID: "uuid-primary", Name: "phone", IsActive: true},
+			{UUID: "uuid-second", Name: "laptop", IsActive: true},
+		},
+	}
+	uc := service.NewUserUseCase(repo, h, logger.New("debug"))
+
+	subscriptions, err := uc.GetSubscriptions(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(subscriptions) != 2 {
+		t.Fatalf("expected 2 subscriptions, got %d", len(subscriptions))
+	}
+	if subscriptions[1].UUID != "uuid-second" {
+		t.Fatalf("unexpected second subscription: %+v", subscriptions[1])
+	}
 }
 
 func (m *mockHiddify) SetTelegramID(_ context.Context, _ string, _ int64) error { return nil }

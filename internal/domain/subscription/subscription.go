@@ -3,6 +3,7 @@ package subscription
 import "time"
 
 type Status struct {
+	Name              string
 	UUID              string
 	UsedTrafficBytes  int64
 	TotalTrafficBytes int64
@@ -11,7 +12,6 @@ type Status struct {
 	IsActive          bool
 	SubscriptionURL   string
 }
-
 
 func (s *Status) RemainingTrafficBytes() int64 {
 	if s.TotalTrafficBytes == 0 {
