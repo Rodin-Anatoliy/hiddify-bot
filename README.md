@@ -58,35 +58,6 @@ mkdir -p data
 make dev               # go run, hot on save
 ```
 
-## Architecture
-
-```
-internal/
-  config/          — env loading, validation, defaults
-  domain/          — pure entities, ports, sentinel business errors
-    admin/         — admin reply/bind session model and port
-    subscription/  — subscription status and Hiddify-facing port
-    ticket/        — support message model and port
-    user/          — bot user model and port
-  service/         — business use cases and orchestration
-  repository/      — adapter implementations
-    hiddify/       — Hiddify Manager API adapter
-    sqlite/        — SQLite persistence adapter
-  transport/
-    tg/            — Telegram bot, handlers, delivery
-      markup/      — inline keyboard builders
-      views/       — Telegram-facing text rendering
-pkg/
-  logger/          — structured JSON logging (slog)
-```
-
-Dependency rule: `transport/tg -> service -> domain`; repositories implement domain ports and are wired in `cmd/bot`.
-
-AI-oriented project notes live in `docs/ai/`.
-
-## TODO
-- Decide whether multi-subscription support needs local per-profile persistence after `/status` usage is validated.
-- Improve admin UX by turning command-heavy flows into editable Telegram panels/wizards.
 
 ## License
 

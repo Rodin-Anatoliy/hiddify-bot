@@ -11,15 +11,9 @@
 - **Testing:** Repository and transport layers lack focused unit tests.
 
 ## Active Roadmap
-1. [x] **Architecture:** Move to `domain/service/repository/transport`.
-2. [x] **Docs:** Align README and `docs/ai` with current structure.
-3. [x] **Tests:** Expand tests for `repository/sqlite` with a temporary DB.
-4. [x] **Tests:** Add Hiddify adapter mapping tests with `httptest`.
-5. [x] **Hardening:** Review broadcast cancellation/rate-limit behavior.
-6. [x] **Config:** Move Hiddify create-user defaults to config if they become deployment policy.
-7. [x] **Feature:** Show all Hiddify profiles linked to a Telegram user in `/status`.
-8. [ ] **Model:** Decide whether local DB needs a separate profile table after multi-profile usage is proven.
-9. [ ] **Admin UX:** Convert command-heavy admin flows to editable Telegram panels/wizards.
+1. [x] **Feature:** Show all Hiddify profiles linked to a Telegram user in `/status`.
+2. [ ] **Model:** Decide whether local DB needs a separate profile table after multi-profile usage is proven.
+3. [ ] **Admin UX:** Convert command-heavy admin flows to editable Telegram panels/wizards.
 
 ## Maintenance Rules
 - After structural changes: Update `INDEX.json` and this `STATUS.md`.
