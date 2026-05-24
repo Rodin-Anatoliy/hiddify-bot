@@ -48,6 +48,13 @@ func main() {
 		cfg.Hiddify.UserProxy,
 		cfg.Hiddify.APIKey,
 		log,
+		hiddify.CreateUserDefaults{
+			UsageLimitGB: cfg.Hiddify.CreateUser.UsageLimitGB,
+			PackageDays:  cfg.Hiddify.CreateUser.PackageDays,
+			Mode:         cfg.Hiddify.CreateUser.Mode,
+			Enable:       cfg.Hiddify.CreateUser.Enable,
+			Lang:         cfg.Hiddify.CreateUser.Lang,
+		},
 	)
 
 	userUC := service.NewUserUseCase(userRepo, hiddifyClient, log)

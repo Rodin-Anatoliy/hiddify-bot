@@ -19,11 +19,11 @@ func (c *Client) CreateUser(ctx context.Context, req subscription.CreateUserRequ
 	payload := map[string]any{
 		"name":           req.Name,
 		"telegram_id":    req.TelegramID,
-		"usage_limit_GB": 100000,
-		"package_days":   10000,
-		"mode":           "no_reset",
-		"enable":         true,
-		"lang":           "ru",
+		"usage_limit_GB": c.createDefaults.UsageLimitGB,
+		"package_days":   c.createDefaults.PackageDays,
+		"mode":           c.createDefaults.Mode,
+		"enable":         c.createDefaults.Enable,
+		"lang":           c.createDefaults.Lang,
 	}
 
 	data, err := json.Marshal(payload)
@@ -53,6 +53,6 @@ func (c *Client) CreateUser(ctx context.Context, req subscription.CreateUserRequ
 	return &subscription.CreatedUser{
 		UUID:            created.UUID,
 		SubscriptionURL: subURL,
-		ExpiresAt:       time.Now().AddDate(0, 0, 10000),
+		ExpiresAt:       time.Now().AddDate(0, 0, c.createDefaults.PackageDays),
 	}, nil
 }

@@ -204,6 +204,45 @@ func TestClientCreateUserSendsDefaultsAndMapsCreatedUser(t *testing.T) {
 	}
 }
 
+func TestClientCreateUserUsesConfiguredDefaults(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertRequest(t, r, http.MethodPost, "/admin/api/v2/admin/user/")
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		assertPayloadValue(t, payload, "usage_limit_GB", float64(2048))
+		assertPayloadValue(t, payload, "package_days", float64(90))
+		assertPayloadValue(t, payload, "mode", "monthly")
+		assertPayloadValue(t, payload, "enable", false)
+		assertPayloadValue(t, payload, "lang", "en")
+
+		respondJSON(t, w, map[string]any{"uuid": "uuid-1"})
+	}))
+	defer server.Close()
+
+	client := hiddify.NewClient(server.URL, testAdminProxy, testUserProxy, testAPIKey, testLogger(), hiddify.CreateUserDefaults{
+		UsageLimitGB: 2048,
+		PackageDays:  90,
+		Mode:         "monthly",
+		Enable:       false,
+		Lang:         "en",
+	})
+	created, err := client.CreateUser(context.Background(), subscription.CreateUserRequest{
+		Name:       "Alice",
+		TelegramID: 42,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	if created.ExpiresAt.Before(time.Now().AddDate(0, 0, 89)) {
+		t.Fatalf("ExpiresAt = %v, want about 90 days from now", created.ExpiresAt)
+	}
+}
+
 func TestClientMapsHTTPErrorSentinels(t *testing.T) {
 	t.Parallel()
 
@@ -237,7 +276,11 @@ func TestClientMapsHTTPErrorSentinels(t *testing.T) {
 }
 
 func newTestClient(baseURL string) *hiddify.Client {
-	return hiddify.NewClient(baseURL, testAdminProxy, testUserProxy, testAPIKey, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return hiddify.NewClient(baseURL, testAdminProxy, testUserProxy, testAPIKey, testLogger())
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func assertRequest(t *testing.T, r *http.Request, method, path string) {

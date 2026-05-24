@@ -19,23 +19,48 @@ const defaultTimeout = 15 * time.Second
 
 // Client communicates with the Hiddify panel REST API v2.
 type Client struct {
-	baseURL    string
-	adminProxy string
-	userProxy  string // path used in user-facing subscription URLs
-	apiKey     string
-	http       *http.Client
-	log        *slog.Logger
+	baseURL        string
+	adminProxy     string
+	userProxy      string // path used in user-facing subscription URLs
+	apiKey         string
+	createDefaults CreateUserDefaults
+	http           *http.Client
+	log            *slog.Logger
+}
+
+type CreateUserDefaults struct {
+	UsageLimitGB int
+	PackageDays  int
+	Mode         string
+	Enable       bool
+	Lang         string
+}
+
+func DefaultCreateUserDefaults() CreateUserDefaults {
+	return CreateUserDefaults{
+		UsageLimitGB: 100000,
+		PackageDays:  10000,
+		Mode:         "no_reset",
+		Enable:       true,
+		Lang:         "ru",
+	}
 }
 
 // NewClient constructs a ready-to-use Hiddify API client.
-func NewClient(baseURL, adminProxy, userProxy, apiKey string, log *slog.Logger) *Client {
+func NewClient(baseURL, adminProxy, userProxy, apiKey string, log *slog.Logger, defaults ...CreateUserDefaults) *Client {
+	createDefaults := DefaultCreateUserDefaults()
+	if len(defaults) > 0 {
+		createDefaults = defaults[0]
+	}
+
 	return &Client{
-		baseURL:    baseURL,
-		adminProxy: adminProxy,
-		userProxy:  userProxy,
-		apiKey:     apiKey,
-		http:       &http.Client{Timeout: defaultTimeout},
-		log:        log.With("component", "hiddify_client"),
+		baseURL:        baseURL,
+		adminProxy:     adminProxy,
+		userProxy:      userProxy,
+		apiKey:         apiKey,
+		createDefaults: createDefaults,
+		http:           &http.Client{Timeout: defaultTimeout},
+		log:            log.With("component", "hiddify_client"),
 	}
 }
 

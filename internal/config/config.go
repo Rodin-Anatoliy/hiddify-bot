@@ -30,6 +30,15 @@ type HiddifyConfig struct {
 	AdminProxy string // random path for admin panel access
 	UserProxy  string // random path for user subscription links
 	APIKey     string
+	CreateUser HiddifyCreateUserConfig
+}
+
+type HiddifyCreateUserConfig struct {
+	UsageLimitGB int
+	PackageDays  int
+	Mode         string
+	Enable       bool
+	Lang         string
 }
 
 type DBConfig struct {
@@ -56,6 +65,13 @@ func MustLoad() *Config {
 			AdminProxy: getenv("HIDDIFY_ADMIN_PROXY", ""),
 			UserProxy:  getenv("HIDDIFY_USER_PROXY", ""),
 			APIKey:     getenv("HIDDIFY_API_KEY", ""),
+			CreateUser: HiddifyCreateUserConfig{
+				UsageLimitGB: getenvInt("HIDDIFY_CREATE_USAGE_LIMIT_GB", 100000),
+				PackageDays:  getenvInt("HIDDIFY_CREATE_PACKAGE_DAYS", 10000),
+				Mode:         getenv("HIDDIFY_CREATE_MODE", "no_reset"),
+				Enable:       getenvBool("HIDDIFY_CREATE_ENABLE", true),
+				Lang:         getenv("HIDDIFY_CREATE_LANG", "ru"),
+			},
 		},
 		DB: DBConfig{
 			Path: getenv("DB_PATH", "data/bot.db"),
@@ -91,6 +107,18 @@ func (cfg *Config) validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
+	if cfg.Hiddify.CreateUser.UsageLimitGB <= 0 {
+		return fmt.Errorf("HIDDIFY_CREATE_USAGE_LIMIT_GB must be greater than 0")
+	}
+	if cfg.Hiddify.CreateUser.PackageDays <= 0 {
+		return fmt.Errorf("HIDDIFY_CREATE_PACKAGE_DAYS must be greater than 0")
+	}
+	if cfg.Hiddify.CreateUser.Mode == "" {
+		return fmt.Errorf("HIDDIFY_CREATE_MODE must not be empty")
+	}
+	if cfg.Hiddify.CreateUser.Lang == "" {
+		return fmt.Errorf("HIDDIFY_CREATE_LANG must not be empty")
+	}
 	return nil
 }
 
@@ -114,6 +142,15 @@ func getenvInt64(key string, fallback int64) int64 {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func getenvBool(key string, fallback bool) bool {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return fallback
