@@ -62,21 +62,32 @@ make dev               # go run, hot on save
 
 ```
 internal/
-  config/         — env loading, validation, defaults
-  domain/         — pure entities, no external dependencies
-  usecase/        — business logic and interfaces consumed by use cases
-  infrastructure/ — implementations: Telegram, Hiddify API, SQLite
+  config/          — env loading, validation, defaults
+  domain/          — pure entities, ports, sentinel business errors
+    admin/         — admin reply/bind session model and port
+    subscription/  — subscription status and Hiddify-facing port
+    ticket/        — support message model and port
+    user/          — bot user model and port
+  service/         — business use cases and orchestration
+  repository/      — adapter implementations
+    hiddify/       — Hiddify Manager API adapter
+    sqlite/        — SQLite persistence adapter
+  transport/
+    tg/            — Telegram bot, handlers, delivery
+      markup/      — inline keyboard builders
+      views/       — Telegram-facing text rendering
 pkg/
-  apperr/         — sentinel errors
-  logger/         — structured JSON logging (slog)
+  logger/          — structured JSON logging (slog)
 ```
 
-Dependency rule: `domain ← usecase ← infrastructure ← cmd`
+Dependency rule: `transport/tg -> service -> domain`; repositories implement domain ports and are wired in `cmd/bot`.
+
+AI-oriented project notes live in `docs/ai/`.
 
 ## TODO
-- /bind UI - create a message with input fields in order (tg id, uuid), the window changes and does not produce unnecessary ones
-- first start - for new users, add the ability to request a connection (or link) with admin approval. Then, notify the user that the connection has been approved. Create a new user in the panel via the API and return to the user. Create an unlimited user (GB limit - 100000, Package days - 10000, Name - randomly chosen).
-- users with several links - study the panel's configuration. Ideally, all links should be subscribed to the same TG, which will limit spam (so that only one message is received), but the goal is for the user to see information on all subscriptions in one account and receive all links.
+- Move Hiddify create-user defaults to config if they become deployment policy.
+- Add focused tests for SQLite repositories and Hiddify API mapping.
+- Review multi-subscription support for users with several Hiddify links.
 
 ## License
 

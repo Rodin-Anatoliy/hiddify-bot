@@ -1,0 +1,94 @@
+{
+  "project": {
+    "name": "hiddify-bot",
+    "module": "github.com/Rodin-Anatoliy/hiddify-bot",
+    "go_version": "1.22",
+    "architecture": "Pragmatic layered DDD"
+  },
+  "packages": [
+    {
+      "path": "cmd/bot",
+      "name": "main",
+      "layer": "entry",
+      "purpose": "App composition root"
+    },
+    {
+      "path": "internal/config",
+      "name": "config",
+      "layer": "config",
+      "purpose": "Env config loading"
+    },
+    {
+      "path": "internal/domain",
+      "name": "domain",
+      "layer": "domain",
+      "purpose": "Cross-domain sentinel errors and domain namespace root"
+    },
+    {
+      "path": "internal/domain/admin",
+      "name": "admin",
+      "layer": "domain",
+      "purpose": "Admin session entities/ports"
+    },
+    {
+      "path": "internal/domain/subscription",
+      "name": "subscription",
+      "layer": "domain",
+      "purpose": "Subscription entities/ports"
+    },
+    {
+      "path": "internal/domain/ticket",
+      "name": "ticket",
+      "layer": "domain",
+      "purpose": "Support ticket entities/ports"
+    },
+    {
+      "path": "internal/domain/user",
+      "name": "user",
+      "layer": "domain",
+      "purpose": "User entities/ports"
+    },
+    {
+      "path": "internal/service",
+      "name": "service",
+      "layer": "service",
+      "purpose": "Business use cases orchestration"
+    },
+    {
+      "path": "internal/repository/hiddify",
+      "name": "hiddify",
+      "layer": "repository",
+      "purpose": "Hiddify API adapter (implements subscription.Repository)"
+    },
+    {
+      "path": "internal/repository/sqlite",
+      "name": "sqlite",
+      "layer": "repository",
+      "purpose": "SQLite adapter (implements domain ports)"
+    },
+    {
+      "path": "internal/transport/tg",
+      "name": "tg",
+      "layer": "transport",
+      "purpose": "Telegram bot runtime and handlers"
+    },
+    {
+      "path": "internal/transport/tg/markup",
+      "name": "markup",
+      "layer": "transport",
+      "purpose": "Keyboard builders"
+    },
+    {
+      "path": "internal/transport/tg/views",
+      "name": "views",
+      "layer": "transport",
+      "purpose": "Text rendering templates"
+    },
+    {
+      "path": "pkg/logger",
+      "name": "logger",
+      "layer": "utility",
+      "purpose": "Structured logging factory"
+    }
+  ]
+}
