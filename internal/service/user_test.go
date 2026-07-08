@@ -129,7 +129,7 @@ func (m *mockHiddify) ListPanelUsers(_ context.Context) ([]subscription.PanelUse
 	return out, nil
 }
 
-func TestGetSubscriptions_ReturnsAllTelegramProfiles(t *testing.T) {
+func TestGetSubscription_ResolvesByLocalUUID(t *testing.T) {
 	repo := newMockUserRepo()
 	_ = repo.Save(context.Background(), &user.User{
 		TelegramID:  42,
@@ -137,6 +137,10 @@ func TestGetSubscriptions_ReturnsAllTelegramProfiles(t *testing.T) {
 		CanMessage:  true,
 		CreatedAt:   time.Now(),
 	})
+	// Panel has a second, unrelated profile that happens to share the same
+	// telegram_id (e.g. a leftover from manual admin edits). It must never
+	// leak into this user's /status: the bot resolves strictly by the
+	// HiddifyUUID stored locally, one profile per person.
 	h := newMockHiddify(map[int64]string{42: "uuid-primary"})
 	h.profiles = map[int64][]*subscription.Status{
 		42: {
@@ -146,15 +150,27 @@ func TestGetSubscriptions_ReturnsAllTelegramProfiles(t *testing.T) {
 	}
 	uc := service.NewUserUseCase(repo, h, logger.New("debug"))
 
-	subscriptions, err := uc.GetSubscriptions(context.Background(), 42)
+	sub, err := uc.GetSubscription(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(subscriptions) != 2 {
-		t.Fatalf("expected 2 subscriptions, got %d", len(subscriptions))
+	if sub.UUID != "uuid-primary" {
+		t.Fatalf("expected uuid-primary, got %+v", sub)
 	}
-	if subscriptions[1].UUID != "uuid-second" {
-		t.Fatalf("unexpected second subscription: %+v", subscriptions[1])
+}
+
+func TestGetSubscription_NotLinked_ReturnsNotFound(t *testing.T) {
+	repo := newMockUserRepo()
+	_ = repo.Save(context.Background(), &user.User{
+		TelegramID: 42,
+		CanMessage: true,
+		CreatedAt:  time.Now(),
+	})
+	uc := service.NewUserUseCase(repo, newMockHiddify(nil), logger.New("debug"))
+
+	_, err := uc.GetSubscription(context.Background(), 42)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 

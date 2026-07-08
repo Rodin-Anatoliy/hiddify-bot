@@ -281,7 +281,9 @@ func (bot *Bot) handleApproveAccess(c tele.Context) error {
 	userMsg := fmt.Sprintf(
 		"🎉 *Доступ одобрен!*\n\n"+
 			"Ваш аккаунт создан. Нажмите /start чтобы увидеть статус подписки.\n\n"+
-			"🔗 [Ссылка на подписку](%s)",
+			"🔗 [Открыть ссылку на подписку](%s)\n"+
+			"Скопировать: `%s`",
+		created.SubscriptionURL,
 		created.SubscriptionURL,
 	)
 	if _, err := bot.b.Send(chatByID(targetID), userMsg, tele.ModeMarkdown, tele.NoPreview); err != nil {

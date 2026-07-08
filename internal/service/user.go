@@ -142,37 +142,20 @@ func (uc *UserUseCase) LinkManually(ctx context.Context, telegramID int64, uuid 
 	return nil
 }
 
-// GetSubscription returns the live subscription status for a linked user.
+// GetSubscription returns the live subscription status for the one Hiddify
+// profile linked to this Telegram user (one profile per person, by design).
+// It always resolves by the locally stored HiddifyUUID, never by scanning
+// the whole panel for matching telegram_id, so a stray telegram_id set on
+// an unrelated panel profile can never surface here.
 func (uc *UserUseCase) GetSubscription(ctx context.Context, telegramID int64) (*subscription.Status, error) {
-	subscriptions, err := uc.GetSubscriptions(ctx, telegramID)
-	if err != nil {
-		return nil, err
-	}
-	return subscriptions[0], nil
-}
-
-// GetSubscriptions returns every live subscription profile linked to a Telegram user.
-func (uc *UserUseCase) GetSubscriptions(ctx context.Context, telegramID int64) ([]*subscription.Status, error) {
 	u, err := uc.users.FindByTelegramID(ctx, telegramID)
 	if err != nil {
 		return nil, err
 	}
-
-	subscriptions, err := uc.hiddify.ListStatusesByTelegramID(ctx, telegramID)
-	if err == nil {
-		return subscriptions, nil
+	if !u.IsLinked() {
+		return nil, domain.ErrNotFound
 	}
-	if !errors.Is(err, domain.ErrNotFound) {
-		return nil, err
-	}
-	if u.IsLinked() {
-		status, statusErr := uc.hiddify.GetUserByUUID(ctx, u.HiddifyUUID)
-		if statusErr != nil {
-			return nil, statusErr
-		}
-		return []*subscription.Status{status}, nil
-	}
-	return nil, domain.ErrNotFound
+	return uc.hiddify.GetUserByUUID(ctx, u.HiddifyUUID)
 }
 
 // MarkCanMessage records whether Telegram delivery is currently possible.
