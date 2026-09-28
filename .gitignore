@@ -31,3 +31,7 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code (личные настройки, отчёты агентов)
+.claude/settings.local.json
+reports/
