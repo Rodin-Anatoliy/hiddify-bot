@@ -10,7 +10,7 @@
 
 ## 🔴 Срочное
 
-- Новые пользователи не работают до `apply_users` (Hiddify v13) — решение в `docs/design/portal.md`.
+- Новый пользователь: xhttp работает сразу, основной tcp+reality — только после полного Apply (Hiddify v13, vpn-ops D15). Варианты — `docs/design/portal.md`, раздел 5.
 
 ## Дальше
 

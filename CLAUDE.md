@@ -59,4 +59,4 @@ Go 1.22 (локально 1.26), telebot.v3 (long polling), `modernc.org/sqlite`
 
 ## Известное
 
-- Hiddify v13: новый пользователь начинает работать только после `apply_users` на сервере; бот его не вызывает (vpn-ops D15). Решение — в `docs/design/portal.md`.
+- Hiddify v13: у нового пользователя (создан через API) xhttp работает сразу, основной tcp+reality — только после полного Apply (vpn-ops D15). Бот Apply не вызывает и не должен. Варианты — `docs/design/portal.md`, раздел 5.
