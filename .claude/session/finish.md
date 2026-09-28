@@ -1,0 +1,3 @@
+- Memory is in git: `docs/decisions.md`, `docs/backlog.md`, `CLAUDE.md`. `CLAUDE.md` ≤ 1.5k tokens.
+- Commit by file name. **Never push from /finish without «ок»**: a push to `main` deploys to the server.
+- Needs from Anatoliy: push, «ок», check on the phone, answers to open questions.

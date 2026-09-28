@@ -1,62 +1,40 @@
 # hiddify-bot
 
-Telegram-бот для пользователей моего VPN (Hiddify Manager v13 на сервере de-1): выдача и статус подписок, поддержка, рассылки, админские команды. Пользователь — Анатолий.
+Telegram bot for the users of Anatoliy's VPN (Hiddify Manager v13 on server de-1): issuing subscriptions and showing their status, support, broadcasts, admin commands. Global rules: `~/.claude/CLAUDE.md`. Agent rules: `.claude/agent-rules.md`.
 
-## Как работаем
+## Critical
+1. **Push only after «ок»:** a push to `main` deploys to prod (Actions: lint → test `-race` → build → scp → `systemctl restart hiddify-bot`).
+2. **The repo is public.** Never commit or show the bot token, the panel API key, user UUIDs, the secret panel path, subscription links, or the server IP or domain. They live only in `.env`, both locally and in `/opt/hiddify-bot/.env` on the server. `.env` is also denied in settings.
+3. **Server de-1 is read-only.** Change it only after «ок». Its address and access are in `../vpn/servers/de-1.md`; never copy them here. Anatoliy's PC reaches the internet through the VPN on de-1.
+4. **Don't touch Hiddify settings or its haproxy/nginx/xray.** They belong to vpn-ops (`../vpn`), which keeps the server decision log.
+5. **Never run the bot locally with the prod token.** A second long-polling client on the same token breaks prod (Telegram returns 409 to both). For local runs, use a separate test token.
+6. **Panel API writes** (create/modify users, apply) happen only from code running on the server. Locally, use `httptest` only.
+7. **SQLite schema changes** only by migration, in the same commit as the code that uses it.
 
-- Отвечать по-русски, коротко, простым языком: вывод → причина → что предлагаю. Без простыней кода и логов.
-- Не соглашаться автоматически: есть вариант лучше или риск — сказать прямо.
-- Работа этапами: план → «ок» → этап → ревью → коммит. **Пуш только после «ок»**: пуш в `main` = деплой на прод.
-- 5ч или 7д лимит близко (`~/.claude/usage.txt`) — остановиться на границе этапа и сказать.
-- Скиллы: `/start` — войти в контекст и выбрать задачу; `/finish` — записать итоги и закоммитить.
+Risk in this project:
+- low: docs only;
+- medium: bot code, which goes to prod on push;
+- high: the server, panel API writes, the bot DB schema.
 
-## Роли
+## Stack and layout
+Go 1.22 (1.26 locally), telebot.v3 (long polling), `modernc.org/sqlite` (no cgo), `log/slog` JSON.
 
-Главная сессия (Opus, effort high) планирует, решает и говорит с Анатолием. Код, логи и вывод с сервера сама не читает — отдаёт агентам. Агенты (`.claude/agents/`) этот файл не видят: задачу писать полностью — цель, контекст, что можно и нельзя.
-
-| Агент | Модель | Для чего |
-|---|---|---|
-| `explorer` | Haiku | вопросы «где/как устроено» по коду; только чтение |
-| `executor` | Sonnet | один согласованный этап: код/документы + проверки + коммит; новый на каждый этап |
-| `reviewer` | Sonnet | ревью диффа этапа + `go vet`/тесты; только чтение |
-
-## Правила (обязательны)
-
-1. Сервер de-1 (адрес и доступ — `../vpn/servers/de-1.md`, в этот репо не писать: он публичный) — **только чтение**; любое изменение — только с «ок». ПК Анатолия ходит в интернет через VPN на de-1.
-2. **Настройки Hiddify, её haproxy/nginx/xray не трогать** — это проект vpn-ops (`..\vpn`). Там же журнал решений по серверу.
-3. **Секреты** — никогда в git и в ответе: токен бота, ключ API панели, UUID пользователей, секретные пути панели, ссылки подписок, IP и домен сервера (репо публичный). Живут только в `.env` (локально и `/opt/hiddify-bot/.env` на сервере). `.env` не читать (deny в `.claude/settings.json`).
-4. Не запускать бота локально с боевым токеном — два long polling на один токен ломают прод.
-5. API панели на запись (создание/изменение пользователей, apply) — только из кода на сервере; локально — только `httptest`.
-6. Схема SQLite — только миграцией, в одном коммите с кодом.
-
-## Стек и структура
-
-Go 1.22 (локально 1.26), telebot.v3 (long polling), `modernc.org/sqlite` (без cgo), `log/slog` (JSON).
-
-| Путь | Что там |
+| Path | What |
 |---|---|
-| `cmd/bot/` | точка входа, сборка зависимостей |
-| `internal/config/` | конфиг из env (`MustLoad`, валидация); образец — `.env.example` |
-| `internal/domain/` | модели: user, subscription, ticket, admin |
-| `internal/repository/hiddify/` | клиент API панели `/<admin_proxy>/api/v2/admin/user/`, заголовок `Hiddify-API-Key` |
-| `internal/repository/sqlite/` | БД бота (users, ticket_messages, admin_sessions), миграции |
-| `internal/service/` | логика: пользователи, поддержка, рассылка |
-| `internal/transport/tg/` | команды и кнопки Telegram |
-| `pkg/logger/` | обёртка slog |
-| `deploy/` | systemd unit, `setup.sh` |
-| `docs/deploy.md` | как устроен деплой |
-| `docs/decisions.md`, `docs/backlog.md` | журнал решений, задачи |
-| `docs/design/` | проекты новых функций |
+| `cmd/bot/` | entry point, wiring |
+| `internal/config/` | env config (`MustLoad`, validation); sample in `.env.example` |
+| `internal/domain/` | user, subscription, ticket, admin |
+| `internal/repository/hiddify/` | panel API client `/<admin_proxy>/api/v2/admin/user/`, header `Hiddify-API-Key` |
+| `internal/repository/sqlite/` | bot DB (users, ticket_messages, admin_sessions), migrations |
+| `internal/service/` | users, support, broadcasts |
+| `internal/transport/tg/` | Telegram commands and buttons |
+| `pkg/logger/` | slog wrapper |
+| `deploy/` | systemd unit, `setup.sh`; details in `docs/deploy.md` |
+| `docs/decisions.md`, `docs/backlog.md`, `docs/design/` | decisions, backlog, feature designs |
 
-## Сборка, тесты, запуск
+## Commands (Windows: no make, gcc, golangci-lint)
+- `gofmt -l .` must be empty · `go vet ./...` · `go build ./...` · `go test -count=1 ./...`
+- `-race` and golangci-lint run in CI only.
 
-Локально (Windows) нет make, gcc, golangci-lint:
-- `gofmt -l .` (пусто) · `go vet ./...` · `go build ./...` · `go test -count=1 ./...`
-- `-race` и golangci-lint (errcheck, govet, ineffassign, staticcheck, unused) — только в CI.
-- Запуск: `go run ./cmd/bot` с отдельным тестовым токеном в `.env` (не боевым).
-
-Деплой: push в `main` → GitHub Actions lint → test (`-race`) → build linux/amd64 → scp в `/opt/hiddify-bot/` → `systemctl restart hiddify-bot`. Подробно — `docs/deploy.md`.
-
-## Известное
-
-- Hiddify v13: у нового пользователя (создан через API) xhttp работает сразу, основной tcp+reality — только после полного Apply (vpn-ops D15). Бот Apply не вызывает и не должен. Варианты — `docs/design/portal.md`, раздел 5.
+## Known
+- Hiddify v13: a user created through the API gets xhttp immediately, but the main tcp+reality works only after a full Apply (vpn-ops D15). The bot doesn't and must not call Apply. Options are in `docs/design/portal.md` §5.

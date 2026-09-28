@@ -1,0 +1,2 @@
+- Reference by topic: `docs/deploy.md` (deploy), `docs/design/*` (feature designs), the needed section only.
+- Every code stage: a new `executor`, then `reviewer`.
