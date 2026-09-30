@@ -35,3 +35,6 @@ Thumbs.db
 # Claude Code (личные настройки, отчёты агентов)
 .claude/settings.local.json
 reports/
+
+# Резервные копии БД, создаваемые миграциями
+*.bak-*
