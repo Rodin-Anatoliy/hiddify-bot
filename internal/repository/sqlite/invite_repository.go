@@ -59,11 +59,16 @@ func (r *InviteRepository) Claim(ctx context.Context, codeHash string, telegramI
 	}
 
 	ts := now.Unix()
+	// claimed_at moves to "now" only for a first claim or a retry after the
+	// cooldown; an early retry keeps the stored time so repeated taps cannot
+	// stretch the cooldown.
+	cooldown := int64(invite.RetryCooldown / time.Second)
 	res, err := tx.ExecContext(ctx,
-		`UPDATE invites SET claimed_at = ?, claimed_by_tg = ?
+		`UPDATE invites SET claimed_at = CASE WHEN claimed_at IS NULL OR ? - claimed_at >= ? THEN ? ELSE claimed_at END,
+		   claimed_by_tg = ?
 		 WHERE code_hash = ? AND redeemed_at IS NULL AND revoked_at IS NULL AND expires_at > ?
 		   AND (claimed_at IS NULL OR claimed_by_tg = ?)`,
-		ts, telegramID, codeHash, ts, telegramID)
+		ts, cooldown, ts, telegramID, codeHash, ts, telegramID)
 	if err != nil {
 		return nil, fmt.Errorf("invite claim: update: %w", err)
 	}
@@ -82,9 +87,16 @@ func (r *InviteRepository) Claim(ctx context.Context, codeHash string, telegramI
 	inv.CreatedAt = time.Unix(created, 0).UTC()
 	inv.ExpiresAt = time.Unix(expires, 0).UTC()
 	claimedAt := now.UTC()
+	var prevAt time.Time
+	if prevClaim.Valid {
+		prevAt = time.Unix(prevClaim.Int64, 0).UTC()
+		if ts-prevClaim.Int64 < cooldown {
+			claimedAt = prevAt // kept by the UPDATE above
+		}
+	}
 	inv.ClaimedAt = &claimedAt
 	inv.ClaimedByTG = &telegramID
-	return &invite.Claim{Invite: inv, Retry: prevClaim.Valid}, nil
+	return &invite.Claim{Invite: inv, Retry: prevClaim.Valid, PrevClaimedAt: prevAt}, nil
 }
 
 func (r *InviteRepository) Release(ctx context.Context, id int64) error {

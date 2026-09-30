@@ -140,3 +140,38 @@ func TestInviteRepository_ListActive(t *testing.T) {
 		t.Fatalf("expires_at = %v", list[0].ExpiresAt)
 	}
 }
+
+func TestInviteRepository_ClaimExposesPrevClaimedAtAndKeepsOriginal(t *testing.T) {
+	ctx := context.Background()
+	repo := sqlite.NewInviteRepository(openTestDB(t))
+	if _, err := repo.Create(ctx, newInvite(invite.KindOwn, 7), "hash-prev"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	first, err := repo.Claim(ctx, "hash-prev", 42, inviteNow)
+	if err != nil || first.Retry || !first.PrevClaimedAt.IsZero() {
+		t.Fatalf("first claim = %+v, err = %v", first, err)
+	}
+
+	// Early retries see the first claim time and do not move it.
+	for _, d := range []time.Duration{time.Second, 30 * time.Second} {
+		got, err := repo.Claim(ctx, "hash-prev", 42, inviteNow.Add(d))
+		if err != nil || !got.Retry || !got.PrevClaimedAt.Equal(inviteNow) {
+			t.Fatalf("early retry +%v = %+v, err = %v", d, got, err)
+		}
+		if !got.Invite.ClaimedAt.Equal(inviteNow) {
+			t.Fatalf("early retry +%v: ClaimedAt = %v, want the original %v", d, got.Invite.ClaimedAt, inviteNow)
+		}
+	}
+
+	// After the cooldown the retry still sees the original time, then the clock restarts.
+	late := inviteNow.Add(invite.RetryCooldown + time.Second)
+	got, err := repo.Claim(ctx, "hash-prev", 42, late)
+	if err != nil || !got.Retry || !got.PrevClaimedAt.Equal(inviteNow) || !got.Invite.ClaimedAt.Equal(late) {
+		t.Fatalf("late retry = %+v, err = %v", got, err)
+	}
+	next, err := repo.Claim(ctx, "hash-prev", 42, late.Add(time.Second))
+	if err != nil || !next.PrevClaimedAt.Equal(late) {
+		t.Fatalf("retry after restart = %+v, err = %v", next, err)
+	}
+}

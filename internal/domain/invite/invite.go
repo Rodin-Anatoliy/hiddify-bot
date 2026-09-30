@@ -82,12 +82,22 @@ type Invite struct {
 	ClaimedByTG *int64
 }
 
+// RetryCooldown is how long after the last claim that actually proceeded to
+// the panel a retry by the same person is turned away without touching the
+// panel (the panel may still be applying the earlier create).
+const RetryCooldown = 60 * time.Second
+
 // Claim is the result of a successful claim.
 type Claim struct {
 	Invite Invite
 	// Retry is true when the same person had already claimed this invite
 	// before this call (an earlier attempt did not finish).
 	Retry bool
+	// PrevClaimedAt is the claim time stored before this call; zero when
+	// there was no earlier claim. A retry made less than RetryCooldown after
+	// it keeps the stored time (so early taps do not extend the cooldown);
+	// a later retry moves it to "now" (the new attempt starts its own cooldown).
+	PrevClaimedAt time.Time
 }
 
 // Repository stores invites. Times are compared as UTC seconds.

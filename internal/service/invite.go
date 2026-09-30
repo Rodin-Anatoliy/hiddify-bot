@@ -26,6 +26,11 @@ const (
 
 	maxWrongAttempts = 5
 	attemptWindow    = 10 * time.Minute
+
+	// retryCooldown: a retry this soon after the previous attempt is answered
+	// "try later" without any panel call (Hiddify's apply takes ~10 s, the HTTP
+	// timeout is 15 s; the earlier CreateUser may still be in flight there).
+	retryCooldown = invite.RetryCooldown
 )
 
 // Outcomes of Redeem that the transport turns into user-facing texts.
@@ -219,6 +224,14 @@ func (uc *InviteUseCase) Redeem(ctx context.Context, telegramID int64, username,
 		return nil, fmt.Errorf("redeem: claim: %w", err)
 	}
 	inv := claim.Invite
+
+	// d2. Too soon after the previous attempt: the panel may still be creating
+	// the user, so neither look up nor create. (The repository keeps the
+	// original claim time here, so early taps do not extend the cooldown.)
+	if claim.Retry && now.Sub(claim.PrevClaimedAt) < retryCooldown {
+		uc.log.Info("invite: retry inside cooldown, panel not touched", "invite_id", inv.ID)
+		return nil, ErrInviteRetryLater
+	}
 
 	// e. Is there already a panel user for this person?
 	existing, uuid, err := uc.panel.GetUserByTelegramID(ctx, telegramID)

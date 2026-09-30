@@ -24,6 +24,7 @@ type fakePanel struct {
 	mu           sync.Mutex
 	byTelegram   map[int64]string
 	createCalls  int
+	lookupCalls  int
 	createReqs   []subscription.CreateUserRequest
 	createErr    error         // returned from CreateUser
 	createAnyway bool          // with createErr: the user is created although an error is returned
@@ -39,6 +40,12 @@ func (p *fakePanel) calls() int {
 	return p.createCalls
 }
 
+func (p *fakePanel) lookups() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lookupCalls
+}
+
 func (p *fakePanel) GetUserByUUID(context.Context, string) (*subscription.Status, error) {
 	return nil, domain.ErrNotFound
 }
@@ -46,6 +53,7 @@ func (p *fakePanel) GetUserByUUID(context.Context, string) (*subscription.Status
 func (p *fakePanel) GetUserByTelegramID(_ context.Context, tg int64) (*subscription.Status, string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.lookupCalls++
 	if p.lookupErr != nil {
 		return nil, "", p.lookupErr
 	}
@@ -328,6 +336,7 @@ func TestRedeem_TimeoutThenRetryFinishesWithoutSecondCreate(t *testing.T) {
 	}
 
 	f.panel.heal()
+	f.advance(retryCooldown + time.Second)
 	res, err := f.redeem(42, iss.Code)
 	if err != nil {
 		t.Fatalf("retry: %v", err)
@@ -338,6 +347,9 @@ func TestRedeem_TimeoutThenRetryFinishesWithoutSecondCreate(t *testing.T) {
 	u, err := f.users.FindByTelegramID(context.Background(), 42)
 	if err != nil || u.HiddifyUUID != "fake-uuid-1" || u.LinkSource != "invite" {
 		t.Fatalf("local user = %+v, err = %v", u, err)
+	}
+	if res.SubscriptionURL == "" {
+		t.Fatal("subscription url must not be empty")
 	}
 	if res.SubscriptionURL != "https://panel.example/sub/fake-uuid-1/" {
 		t.Fatalf("subscription url = %q", res.SubscriptionURL)
@@ -359,6 +371,7 @@ func TestRedeem_ServerErrorKeepsClaim(t *testing.T) {
 		t.Fatalf("claim must be kept; other person err = %v", err)
 	}
 	f.panel.heal()
+	f.advance(retryCooldown + time.Second)
 	if _, err := f.redeem(42, iss.Code); err != nil {
 		t.Fatalf("retry by the same person: %v", err)
 	}
@@ -465,6 +478,104 @@ func TestRedeem_ConcurrentSamePersonCreatesOnce(t *testing.T) {
 	}
 	if ok != 1 {
 		t.Fatalf("successes = %d, want 1 (errs = %v)", ok, errs)
+	}
+}
+
+// lostCreate makes the panel create the user although CreateUser times out.
+func (f *fixture) lostCreate() {
+	f.panel.mu.Lock()
+	defer f.panel.mu.Unlock()
+	f.panel.createErr, f.panel.createAnyway = timeoutErr(), true
+}
+
+func TestRedeem_RetryInsideCooldownDoesNotTouchPanel(t *testing.T) {
+	f := newFixture(t)
+	iss := f.issue(t, invite.KindFriend, 7)
+	f.lostCreate()
+
+	if _, err := f.redeem(42, iss.Code); !errors.Is(err, ErrInviteRetryLater) {
+		t.Fatalf("first: err = %v, want ErrInviteRetryLater", err)
+	}
+	lookups, creates := f.panel.lookups(), f.panel.calls()
+
+	f.advance(time.Second)
+	if _, err := f.redeem(42, iss.Code); !errors.Is(err, ErrInviteRetryLater) {
+		t.Fatalf("second: err = %v, want ErrInviteRetryLater", err)
+	}
+	if f.panel.lookups() != lookups || f.panel.calls() != creates {
+		t.Fatalf("panel touched inside cooldown: lookups %d->%d, creates %d->%d",
+			lookups, f.panel.lookups(), creates, f.panel.calls())
+	}
+
+	f.advance(retryCooldown) // +61 s from the first claim
+	res, err := f.redeem(42, iss.Code)
+	if err != nil {
+		t.Fatalf("third: %v", err)
+	}
+	if f.panel.calls() != 1 {
+		t.Fatalf("CreateUser calls = %d, want 1", f.panel.calls())
+	}
+	if res.SubscriptionURL == "" {
+		t.Fatal("subscription url must not be empty")
+	}
+}
+
+func TestRedeem_EarlyRetriesDoNotExtendCooldown(t *testing.T) {
+	f := newFixture(t)
+	iss := f.issue(t, invite.KindFriend, 7)
+	f.lostCreate()
+
+	if _, err := f.redeem(42, iss.Code); !errors.Is(err, ErrInviteRetryLater) {
+		t.Fatalf("first: err = %v, want ErrInviteRetryLater", err)
+	}
+	lookups := f.panel.lookups()
+
+	f.advance(time.Second) // +1 s
+	if _, err := f.redeem(42, iss.Code); !errors.Is(err, ErrInviteRetryLater) {
+		t.Fatalf("+1s: err = %v, want ErrInviteRetryLater", err)
+	}
+	f.advance(29 * time.Second) // +30 s
+	if _, err := f.redeem(42, iss.Code); !errors.Is(err, ErrInviteRetryLater) {
+		t.Fatalf("+30s: err = %v, want ErrInviteRetryLater", err)
+	}
+	if f.panel.lookups() != lookups {
+		t.Fatal("panel must not be touched by early retries")
+	}
+
+	f.advance(31 * time.Second) // +61 s from the first claim, only 31 s after the last tap
+	res, err := f.redeem(42, iss.Code)
+	if err != nil {
+		t.Fatalf("+61s: %v", err)
+	}
+	if res.SubscriptionURL == "" || f.panel.calls() != 1 {
+		t.Fatalf("result = %+v, CreateUser calls = %d, want url and 1 call", res, f.panel.calls())
+	}
+}
+
+func TestRedeem_ConcurrentDoubleTapAfterTimeoutCreatesOnce(t *testing.T) {
+	f := newFixture(t)
+	f.panel.createDelay = 50 * time.Millisecond
+	f.lostCreate()
+	iss := f.issue(t, invite.KindOwn, 7)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = f.redeem(42, iss.Code)
+		}()
+	}
+	wg.Wait()
+
+	if f.panel.calls() != 1 {
+		t.Fatalf("CreateUser calls = %d, want exactly 1", f.panel.calls())
+	}
+	for i, err := range errs {
+		if !errors.Is(err, ErrInviteRetryLater) {
+			t.Fatalf("call %d: err = %v, want ErrInviteRetryLater", i, err)
+		}
 	}
 }
 
