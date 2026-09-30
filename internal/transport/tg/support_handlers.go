@@ -17,6 +17,7 @@ import (
 )
 
 func (bot *Bot) handleSupportPrompt(c tele.Context) error {
+	bot.codeWait.clear(c.Sender().ID)
 	return c.Send("📨 Напишите ваш вопрос следующим сообщением — ответим как можно скорее.")
 }
 
@@ -27,6 +28,9 @@ func (bot *Bot) routeText(c tele.Context) error {
 			return err
 		}
 		return bot.handleAdminReply(c)
+	}
+	if handled, err := bot.tryHandleCodeText(c); handled {
+		return err
 	}
 	return bot.handleUserText(c)
 }

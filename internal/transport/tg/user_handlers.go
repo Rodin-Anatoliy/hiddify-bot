@@ -3,7 +3,7 @@ package tg
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 
 	tele "gopkg.in/telebot.v3"
 
@@ -13,6 +13,17 @@ import (
 )
 
 func (bot *Bot) handleStart(c tele.Context) error {
+	// Deep link t.me/<bot>?start=i_<CODE>. Redeem first, before RegisterOrGet:
+	// its auto-link would otherwise grab a panel user created by an earlier
+	// timed-out attempt and leave the invite unfinished. Any other payload
+	// (or none) goes to the usual flow.
+	if msg := c.Message(); msg != nil && strings.HasPrefix(msg.Payload, startPayloadPrefix) {
+		alreadySubscribed, err := bot.redeemAndReply(c, strings.TrimPrefix(msg.Payload, startPayloadPrefix), false)
+		if !alreadySubscribed {
+			return err
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
 	defer cancel()
 
@@ -32,12 +43,9 @@ func (bot *Bot) handleStart(c tele.Context) error {
 	return c.Send(
 		"👋 *Привет!*\n\n"+
 			"Я — ваш персональный ассистент для управления VPN-подпиской.\n\n"+
-			"⚠️ Ваш Telegram пока не привязан к аккаунту. Отправьте заявку на подключение, и администратор проверит профиль.",
+			"⚠️ Ваш Telegram пока не привязан к подписке. Если у вас есть код приглашения — нажмите «У меня есть код». Кода нет — попросите его у администратора.",
 		tele.ModeMarkdown,
-		&tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{
-			{{Text: "🔐 Запросить подключение", Data: "cmd:request_access"}},
-			{{Text: "📨 Написать в поддержку", Data: "cmd:support"}},
-		}},
+		markup.UnlinkedMenu(),
 	)
 }
 
@@ -74,32 +82,4 @@ func (bot *Bot) editStatus(ctx context.Context, c tele.Context) error {
 		return c.Send(text, tele.ModeMarkdown, tele.NoPreview, markup.StatusMenu())
 	}
 	return nil
-}
-
-func (bot *Bot) handleAccessRequest(ctx context.Context, c tele.Context) error {
-	sender := c.Sender()
-	username := sender.Username
-
-	displayName := "без username"
-	if username != "" {
-		displayName = "@" + username
-	}
-
-	// Use plain text for the username to avoid Markdown parse errors
-	// when the username contains special characters like _ * [ ]
-	adminMsg := fmt.Sprintf(
-		"🔐 Заявка на подключение\n\nПользователь: %s\nTelegram ID: %d",
-		displayName, sender.ID,
-	)
-
-	if _, err := bot.b.Send(
-		chatByID(bot.adminID),
-		adminMsg,
-		markup.AccessRequest(sender.ID),
-	); err != nil {
-		bot.log.Warn("access request: notify admin failed", "err", err)
-		return c.Send("⚠️ Не удалось отправить заявку. Напишите в поддержку следующим сообщением.")
-	}
-
-	return c.Send("✅ Заявка отправлена. Как только администратор одобрит — вы получите уведомление и доступ к подписке.")
 }

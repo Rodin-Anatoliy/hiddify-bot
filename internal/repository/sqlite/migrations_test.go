@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,10 +113,10 @@ func TestMigrate_EmptyDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if v := count(t, db.conn, `SELECT MAX(version) FROM schema_version`); v != 1 {
-		t.Fatalf("version = %d, want 1", v)
+	if v := count(t, db.conn, `SELECT MAX(version) FROM schema_version`); v != len(migrations) {
+		t.Fatalf("version = %d, want %d", v, len(migrations))
 	}
-	for _, tbl := range []string{"users", "ticket_messages", "admin_sessions"} {
+	for _, tbl := range []string{"users", "ticket_messages", "admin_sessions", "invites"} {
 		if n := count(t, db.conn, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='`+tbl+`'`); n != 1 {
 			t.Fatalf("table %s missing", tbl)
 		}
@@ -136,8 +137,8 @@ func TestMigrate_LegacyDBAdoptsVersioningWithBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open legacy: %v", err)
 	}
-	if v := count(t, db.conn, `SELECT MAX(version) FROM schema_version`); v != 1 {
-		t.Fatalf("version = %d, want 1", v)
+	if v := count(t, db.conn, `SELECT MAX(version) FROM schema_version`); v != len(migrations) {
+		t.Fatalf("version = %d, want %d", v, len(migrations))
 	}
 	want := map[string]int{"users": 2, "ticket_messages": 2, "admin_sessions": 1}
 	for tbl, n := range want {
@@ -172,11 +173,11 @@ func TestMigrate_ReopenMakesNoBackup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("open #%d: %v", i, err)
 		}
-		if v := count(t, db.conn, `SELECT MAX(version) FROM schema_version`); v != 1 {
-			t.Fatalf("version = %d, want 1", v)
+		if v := count(t, db.conn, `SELECT MAX(version) FROM schema_version`); v != len(migrations) {
+			t.Fatalf("version = %d, want %d", v, len(migrations))
 		}
-		if n := count(t, db.conn, `SELECT COUNT(*) FROM schema_version`); n != 1 {
-			t.Fatalf("schema_version rows = %d, want 1", n)
+		if n := count(t, db.conn, `SELECT COUNT(*) FROM schema_version`); n != len(migrations) {
+			t.Fatalf("schema_version rows = %d, want %d", n, len(migrations))
 		}
 		if err := db.Close(); err != nil {
 			t.Fatalf("close: %v", err)
@@ -224,7 +225,7 @@ func TestMigrate_FailingMigrationRollsBack(t *testing.T) {
 	}
 
 	boom := errors.New("boom")
-	bad := append(append([]migration{}, migrations...), migration{version: 2, apply: func(tx *sql.Tx) error {
+	bad := append(append([]migration{}, migrations...), migration{version: len(migrations) + 1, apply: func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`CREATE TABLE half_done (id INTEGER)`); err != nil {
 			return err
 		}
@@ -238,8 +239,8 @@ func TestMigrate_FailingMigrationRollsBack(t *testing.T) {
 	}
 
 	conn := rawOpen(t, path)
-	if v := count(t, conn, `SELECT MAX(version) FROM schema_version`); v != 1 {
-		t.Fatalf("version = %d, want 1", v)
+	if v := count(t, conn, `SELECT MAX(version) FROM schema_version`); v != len(migrations) {
+		t.Fatalf("version = %d, want %d", v, len(migrations))
 	}
 	if n := count(t, conn, `SELECT COUNT(*) FROM sqlite_master WHERE name='half_done'`); n != 0 {
 		t.Fatalf("half_done table survived rollback")
@@ -248,8 +249,8 @@ func TestMigrate_FailingMigrationRollsBack(t *testing.T) {
 		t.Fatalf("users rows = %d, want 1", n)
 	}
 	b := backups(t, path)
-	if len(b) != 1 || !strings.Contains(b[0], ".bak-v1-") {
-		t.Fatalf("backups = %v, want one .bak-v1-*", b)
+	if want := fmt.Sprintf(".bak-v%d-", len(migrations)); len(b) != 1 || !strings.Contains(b[0], want) {
+		t.Fatalf("backups = %v, want one *%s*", b, want)
 	}
 	if n := count(t, rawOpen(t, b[0]), `SELECT COUNT(*) FROM users`); n != 1 {
 		t.Fatalf("backup users rows = %d, want 1", n)

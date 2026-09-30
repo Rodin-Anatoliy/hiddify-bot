@@ -5,9 +5,14 @@ import (
 	"time"
 )
 
+// CreateUserRequest describes a panel user to create. The optional overrides
+// replace the configured defaults when non-zero.
 type CreateUserRequest struct {
-	Name       string
-	TelegramID int64
+	Name         string
+	TelegramID   int64
+	UsageLimitGB int    // 0 = config default
+	PackageDays  int    // 0 = config default
+	Mode         string // "" = config default
 }
 
 type CreatedUser struct {

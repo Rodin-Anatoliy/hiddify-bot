@@ -35,6 +35,7 @@ func main() {
 	userRepo := sqlite.NewUserRepository(db)
 	ticketRepo := sqlite.NewTicketRepository(db)
 	sessionRepo := sqlite.NewAdminSessionRepository(db)
+	inviteRepo := sqlite.NewInviteRepository(db)
 
 	if n, err := sessionRepo.DeleteExpired(context.Background()); err != nil {
 		log.Warn("session cleanup failed", "err", err)
@@ -67,7 +68,8 @@ func main() {
 
 	supportUC := service.NewSupportUseCase(ticketRepo, log)
 	broadcastUC := service.NewBroadcastUseCase(userRepo, log)
-	bot.InjectUseCases(supportUC, broadcastUC)
+	inviteUC := service.NewInviteUseCase(inviteRepo, userRepo, hiddifyClient, log)
+	bot.InjectUseCases(supportUC, broadcastUC, inviteUC)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

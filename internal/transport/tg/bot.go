@@ -28,7 +28,9 @@ type Bot struct {
 	userUC      *service.UserUseCase
 	supportUC   *service.SupportUseCase
 	broadcastUC *service.BroadcastUseCase
+	inviteUC    *service.InviteUseCase
 	sessionRepo admin.SessionRepository
+	codeWait    *codeWaiters
 
 	mu                   sync.Mutex
 	activeReplyMessageID int
@@ -55,14 +57,16 @@ func New(
 		log:         log.With("component", "telegram"),
 		userUC:      userUC,
 		sessionRepo: sessionRepo,
+		codeWait:    newCodeWaiters(),
 	}
 	bot.registerHandlers()
 	return bot, nil
 }
 
-func (bot *Bot) InjectUseCases(supportUC *service.SupportUseCase, broadcastUC *service.BroadcastUseCase) {
+func (bot *Bot) InjectUseCases(supportUC *service.SupportUseCase, broadcastUC *service.BroadcastUseCase, inviteUC *service.InviteUseCase) {
 	bot.supportUC = supportUC
 	bot.broadcastUC = broadcastUC
+	bot.inviteUC = inviteUC
 }
 
 func (bot *Bot) Start() {
@@ -84,6 +88,8 @@ func (bot *Bot) setupCommands() {
 		{Text: "users", Description: "Пользователи Hiddify и Telegram-статус"},
 		{Text: "bind", Description: "Привязать пользователя (tg_id uuid)"},
 		{Text: "history", Description: "История обращений пользователя"},
+		{Text: "invite", Description: "Новый код приглашения"},
+		{Text: "invites", Description: "Активные коды приглашений"},
 	}
 
 	if err := bot.b.SetCommands(userCommands); err != nil {
@@ -128,6 +134,8 @@ func (bot *Bot) registerHandlers() {
 	admin.Handle("/sync", bot.handleSync)
 	admin.Handle("/users", bot.handleUsers)
 	admin.Handle("/history", bot.handleHistory)
+	admin.Handle("/invite", bot.handleInvite)
+	admin.Handle("/invites", bot.handleInvites)
 	admin.Handle("/cancel", bot.handleCancelReply)
 
 	bot.b.Handle(&replyBtn, bot.handleReplyCallback)

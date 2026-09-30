@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain"
 	"github.com/Rodin-Anatoliy/hiddify-bot/internal/domain/subscription"
 )
 
@@ -16,12 +17,23 @@ import (
 func (c *Client) CreateUser(ctx context.Context, req subscription.CreateUserRequest) (*subscription.CreatedUser, error) {
 	path := fmt.Sprintf("/%s/api/v2/admin/user/", c.adminProxy)
 
+	usageLimitGB, packageDays, mode := c.createDefaults.UsageLimitGB, c.createDefaults.PackageDays, c.createDefaults.Mode
+	if req.UsageLimitGB != 0 {
+		usageLimitGB = req.UsageLimitGB
+	}
+	if req.PackageDays != 0 {
+		packageDays = req.PackageDays
+	}
+	if req.Mode != "" {
+		mode = req.Mode
+	}
+
 	payload := map[string]any{
 		"name":           req.Name,
 		"telegram_id":    req.TelegramID,
-		"usage_limit_GB": c.createDefaults.UsageLimitGB,
-		"package_days":   c.createDefaults.PackageDays,
-		"mode":           c.createDefaults.Mode,
+		"usage_limit_GB": usageLimitGB,
+		"package_days":   packageDays,
+		"mode":           mode,
 		"enable":         c.createDefaults.Enable,
 		"lang":           c.createDefaults.Lang,
 	}
@@ -49,10 +61,14 @@ func (c *Client) CreateUser(ctx context.Context, req subscription.CreateUserRequ
 		return nil, fmt.Errorf("hiddify create user: %w", err)
 	}
 
+	if created.UUID == "" {
+		return nil, fmt.Errorf("hiddify create user: %w: empty uuid in response", domain.ErrHiddifyAPI)
+	}
+
 	subURL := fmt.Sprintf("%s/%s/%s/", c.baseURL, c.userProxy, created.UUID)
 	return &subscription.CreatedUser{
 		UUID:            created.UUID,
 		SubscriptionURL: subURL,
-		ExpiresAt:       time.Now().AddDate(0, 0, c.createDefaults.PackageDays),
+		ExpiresAt:       time.Now().AddDate(0, 0, packageDays),
 	}, nil
 }

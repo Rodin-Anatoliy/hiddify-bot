@@ -177,7 +177,7 @@ func (c *Client) decode(resp *http.Response, dest any) error {
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		c.log.Error("hiddify error response", "status", resp.StatusCode, "body", string(body))
-		return fmt.Errorf("%w: status %d", domain.ErrHiddifyAPI, resp.StatusCode)
+		return fmt.Errorf("%w: %w", domain.ErrHiddifyAPI, &domain.StatusError{Code: resp.StatusCode})
 	}
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
 		return fmt.Errorf("hiddify: decode: %w", err)

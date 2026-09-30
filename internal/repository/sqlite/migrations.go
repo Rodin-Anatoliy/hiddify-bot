@@ -23,6 +23,29 @@ type migration struct {
 
 var migrations = []migration{
 	{version: 1, apply: migrateV1},
+	{version: 2, apply: migrateV2},
+}
+
+// migrateV2 adds invite codes. Only the SHA-256 of the code is stored.
+// Times are Unix seconds. No foreign keys: the driver does not enforce them
+// in this setup anyway.
+func migrateV2(tx *sql.Tx) error {
+	_, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS invites (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			code_hash      TEXT    NOT NULL UNIQUE,
+			kind           TEXT    NOT NULL,
+			days           INTEGER NOT NULL,
+			created_at     INTEGER NOT NULL,
+			expires_at     INTEGER NOT NULL,
+			revoked_at     INTEGER,
+			claimed_at     INTEGER,
+			claimed_by_tg  INTEGER,
+			redeemed_at    INTEGER,
+			redeemed_uuid  TEXT
+		);
+	`)
+	return err
 }
 
 // migrateV1 is the schema the bot had before versioning. It is idempotent so
