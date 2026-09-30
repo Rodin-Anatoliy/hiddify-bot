@@ -261,9 +261,10 @@ func TestMigrate_BackupFailureAppliesNothing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bot.db")
 	makeLegacyDB(t, path)
 
-	// Occupy the backup target so VACUUM INTO fails.
+	// Put a directory on the backup target so VACUUM INTO fails on every OS
+	// (an existing plain file is overwritten on Linux, so it is not a reliable blocker).
 	target := path + ".bak-v0-" + fixedNow().Format("20060102T150405.000Z")
-	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
+	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatalf("precreate target: %v", err)
 	}
 
